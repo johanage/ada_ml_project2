@@ -17,7 +17,7 @@ def cost_lasso(y, a, w, **kwargs):
     return np.mean(np.square(y-a)) + lmbda*np.mean(np.abs(w))
 
 class Neural_Network(object):
-    def __init__(self, X, y, costfunc):
+    def __init__(self, X, y, costfunc, eta):
         """
         The initialization of the NN.
 
@@ -25,8 +25,11 @@ class Neural_Network(object):
         X - ndarray, the input data (nsamples, nfeatures)
         y - ndarray, the target data
         costfunc - str, specification of type of cost function 
+        eta - float, learning rate
         """
         self.target = y
+        self.Xdata_full = X
+        self.Ydata_full = y
         self.layers = 0
         self.nodes = {0 : X.shape[1]}
         self.afs = {}
@@ -39,7 +42,7 @@ class Neural_Network(object):
         # init the derivatives
         self.nabla_w_C = {}
         self.nabla_b_C = {}
-
+        self.eta = eta
     def info(self):
         print("nodes ", [(k,v) for k,v in self.nodes.items()])
         print("activation functions ", [(k,v) for k,v in self.afs.items()])
@@ -130,20 +133,26 @@ class Neural_Network(object):
             self.nabla_w_C[idx] = self.a[idx-1].T @ self.delta[idx]
             self.nabla_b_C[idx] = np.sum(self.delta[idx], axis = 0, keepdims=True)
     
-    def update_weights(self,eta):
+    def update_weights(self, size_mini_batches):
         for l in range(1, self.layers):
-            self.bias[l]    -= eta*self.nabla_b_C[l].T
-            self.weights[l] -= eta*self.nabla_w_C[l]
+            self.bias[l]    -= self.eta*self.nabla_b_C[l].T/size_mini_batches
+            self.weights[l] -= self.eta*self.nabla_w_C[l]/size_mini_batches
     
     
-    def SGD(self, epochs, mini_batches):
-        binds = divide_batches(X = self.a[0], nmb = mini_batches, batch_pick = 'random')    
+    def SGD(self, epochs, mini_batches, **kwargs):
+        binds = divide_batches(X = self.Xdata_full, nmb = mini_batches, batch_pick = 'random')    
         for nepoch in range(epochs):
             for m in range(mini_batches):
                 ind_batch = np.random.randint(mini_batches)
-                xtrain = self.a[0][binds[ind_batch]] # binds[ind_batch] are random indices according to the batch drawn by divide_batches
-                ytrain = self.target[binds[ind_batch]]
-                
+                self.a[0] = self.Xdata_full[binds[ind_batch]] # binds[ind_batch] are random indices according to the batch drawn by divide_batches
+                self.target = self.Ydata_full[binds[ind_batch]]
+                self.feed_forward()
+                self.backpropagation()
+                self.update_weights(len(binds[ind_batch]))
+                loss = cost_ols(self.target, self.a[self.layers], **kwargs)
+                #print(loss)
+                print("Epoch {0}/{1}, batch {2}/{3}, loss: {4:.4f}".format(nepoch+1,epochs,m+1,mini_batches,np.mean(loss)) )
+        # reset the target and the 0th activation output to y and X?
     def sigma(self, af, zl):
         """
         Args:
