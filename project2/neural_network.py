@@ -9,12 +9,28 @@ from optimization import divide_batches
 # and can be optimized wrt the output activations
 def cost_ols(y, a, **kwargs):
     return np.mean(np.square(y-a))
+
 def cost_ridge(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
     return np.mean(np.square(y-a)) + lmbda*np.mean(np.square(w))
+
 def cost_lasso(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
     return np.mean(np.square(y-a)) + lmbda*np.mean(np.abs(w))
+
+def cross_entropy(y, a, **kwargs):
+    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )
+
+def cross_entropy_l2reg(y, a, w, **kwargs):
+    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) ) + lmbda*np.mean(np.square(w))
+
+def cross_entropy_l1reg(y, a, w, **kwargs):
+    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) ) + lmbda*np.mean(np.abs(w))
+
+
+def accuracy(t, y):
+    return np.mean( (t == y).astype(int) )
+
 
 class Neural_Network(object):
     def __init__(self, X, y, costfunc, eta):
@@ -74,7 +90,7 @@ class Neural_Network(object):
    
     def output_layer(self, af, weights = None, bias = None):
         """
-        Adds output layer to the NN.
+        Adds output layer to the NN for regression type problems where the output shape is equal to the input shape.
         Args:
         nodes - int, number of nodes in the new layer
         af - str, the activation function type
@@ -111,7 +127,13 @@ class Neural_Network(object):
             self.nabla_a_C = grad(cost_ridge, 1)
         if self.costfunc == 'lasso':
             self.nabla_a_C = grad(cost_lasso, 1)
-    
+        if self.costfunc == 'cross_entropy':
+            self.nabla_a_C = grad(cross_entropy, 1)
+        if self.costfunc == 'cross_entropy_l1reg':
+            self.nabla_a_C = grad(cross_entropy_l1reg, 1)
+        if self.costfunc == 'cross_entropy_l2reg':
+            self.nabla_a_C = grad(cross_entropy_l2reg, 1)
+
     def delta_L(self, **kwargs):
         # compute the gradient for the last layer to start backpropagation
         gradient = self.nabla_a_C(self.target, self.a[self.layers], **kwargs)
@@ -169,8 +191,11 @@ class Neural_Network(object):
             out = np.maximum(zl, 0)
         if af == "leaky_relu":
             out = .5*( (1 - np.sign(zl))*1e-2*zl + (1 + np.sign(zl))*zl)
+        if af == "softmax":
+            out = np.exp(zl)/np.sum( np.exp(zl), axis=1, keepdims=True)
+        
         return out
-    
+           
     def sigma_prime(self, af, zl):
         """
         Args:
@@ -188,4 +213,7 @@ class Neural_Network(object):
             out = .5*(1 + np.sign(zl))
         if af == "leaky_relu":
             out = .5*( (1 - np.sign(zl))*1e-2 + (1 + np.sign(zl)))
+        if af == "softmax":
+            out = np.exp(zl)/np.sum(np.exp(zl), axis = 1, keepdims=True)
+
         return out
