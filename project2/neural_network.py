@@ -1,11 +1,14 @@
 # all the code for the neural network
+# column vectors are by definition NOT transpose
+# row vectors are transpose such that it follow the theoretical defnition Matrix (n,m) @ Column vector (m,1) = Column vector (n,1)
 from autograd import grad
 import numpy as np
 import autograd.numpy as np
+from optimization import divide_batches
 # defining the cost functions so that they work with autograd
 # and can be optimized wrt the output activations
 def cost_ols(y, a, **kwargs):
-        return np.mean(np.square(y-a))
+    return np.mean(np.square(y-a))
 def cost_ridge(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
     return np.mean(np.square(y-a)) + lmbda*np.mean(np.square(w))
@@ -25,14 +28,29 @@ class Neural_Network(object):
         """
         self.target = y
         self.layers = 0
-        self.nodes = {0 : X.shape[0]}
+        self.nodes = {0 : X.shape[1]}
         self.afs = {}
         self.costfunc = costfunc
+        self.grad_cost()
         self.a = {0 : X}
         self.weights = {}
         self.bias = {}
         self.z = {}
-        
+        # init the derivatives
+        self.nabla_w_C = {}
+        self.nabla_b_C = {}
+
+    def info(self):
+        print("nodes ", [(k,v) for k,v in self.nodes.items()])
+        print("activation functions ", [(k,v) for k,v in self.afs.items()])
+        print("activation output key value.shape ", [(k,v.shape) for k,v in self.a.items()])
+        print("weights key value.shape ", [(k,v.shape) for k,v in self.weights.items()])
+        print("bias key value.shape ", [(k,v.shape) for k,v in self.bias.items()])
+        print("z key value.shape ", [(k,v.shape) for k,v in self.z.items()])
+        print("delta key value.shape ", [(k,v.shape) for k,v in self.delta.items()])
+        print("nabla_b_C key value.shape ", [(k,v.shape) for k,v in self.nabla_b_C.items()])
+        print("nabla_w_C key value.shape ", [(k,v.shape) for k,v in self.nabla_w_C.items()])
+
     def add_layer(self, nodes, af, weights = None, bias = None):
         """
         To add a layer to the NN.
@@ -47,9 +65,9 @@ class Neural_Network(object):
         self.nodes[l] = nodes
         self.afs[l] = af 
         if weights is not None: self.weights[l] = weights
-        else: self.weights[l] = np.random.normal(0,0.5, size=(nodes, self.nodes[l-1]) ) 
+        else: self.weights[l] = np.random.normal(0,0.5, size=(self.nodes[l-1], self.nodes[l] ) ) 
         if bias is not None: self.bias[l] = bias
-        else: self.bias[l] = np.random.normal(0, 0.5, size=(nodes,1) )
+        else: self.bias[l] = np.random.normal(0, 0.5, size=(self.nodes[l],1) )
    
     def output_layer(self, af, weights = None, bias = None):
         """
@@ -62,12 +80,12 @@ class Neural_Network(object):
         """
         self.layers += 1
         l = self.layers
-        self.nodes[l] = list(self.nodes.values())[0]
+        self.nodes[l] = self.nodes[0]
         self.afs[l] = af
         if weights is not None: self.weights[l] = weights
-        else: self.weights[l] = np.random.normal(0,0.5, size=(list(self.nodes.values())[-1], list(self.nodes.values())[-2] ) ) 
+        else: self.weights[l] = np.random.normal(0,0.5, size=(self.nodes[l-1], self.nodes[l] ) ) 
         if bias is not None: self.bias[l] = bias
-        else: self.bias[l] = np.random.normal(0, 0.5, size=(list(self.nodes.values())[-1] ,1) ) 
+        else: self.bias[l] = np.random.normal(0, 0.5, size=(self.nodes[l], 1) ) 
         
     
     def feed_forward(self):
@@ -75,12 +93,9 @@ class Neural_Network(object):
         Feed forward algorithm for all layers.
         l - int, starts at 0, e.g. a[0] = X (input)
         """
-        l = 1
-        for w, b in zip(list(self.weights.values()), list(self.bias.values()) ):
-            z = w @ self.a[l-1] + b
-            self.z[l] = z
-            self.a[l] = self.sigma(self.afs[l], z) 
-            l += 1
+        for l in range(1, self.layers+1):
+            self.z[l] = self.a[l-1] @ self.weights[l] + self.bias[l].T
+            self.a[l] = self.sigma(self.afs[l], self.z[l].copy()) 
         
     def grad_cost(self):
         """
@@ -95,40 +110,48 @@ class Neural_Network(object):
             self.nabla_a_C = grad(cost_lasso, 1)
     
     def delta_L(self, **kwargs):
-        # set up the autodiff of the cost function specified in self.costfunc
-        self.grad_cost()
         # compute the gradient for the last layer to start backpropagation
-        gradient = self.nabla_a_C(self.target, list(self.a.values())[-1], **kwargs)
-        dL = np.multiply(gradient, self.sigma_prime(list(self.afs.values())[-1], list(self.z.values())[-1]) )
-        self.delta = {self.layers : dL}
+        gradient = self.nabla_a_C(self.target, self.a[self.layers], **kwargs)
+        dL = np.multiply(gradient, self.sigma_prime(self.afs[self.layers], self.z[self.layers]) )
+        self.delta = {self.layers : dL.copy()}
 
     def delta_l(self,l, **kwargs):
-        dl = np.multiply(self.weights[l+1].T @ self.delta[l+1], self.sigma_prime(self.afs[l], self.z[l]) )
-        self.delta[l] = dl
+        #dl = np.multiply(self.weights[l+1].T @ self.delta[l+1], self.sigma_prime(self.afs[l], self.z[l]) )
+        dl = np.multiply(self.delta[l+1] @ self.weights[l+1].T, self.sigma_prime(self.afs[l], self.z[l]) )
+        self.delta[l] = dl.copy()
         
     def backpropagation(self, **kwargs):
-        # init the derivatives
-        self.nabla_w_C = {}
-        self.nabla_b_C = {}
         # compute the error in layer
         self.delta_L(**kwargs)
         for l in range(self.layers):
             idx = self.layers-l
             if l > 0:
                 self.delta_l(idx)
-            self.nabla_w_C[idx] = self.delta[idx] @ self.a[idx-1].T
-            self.nabla_b_C[idx] = self.delta[idx]
+            self.nabla_w_C[idx] = self.a[idx-1].T @ self.delta[idx]
+            self.nabla_b_C[idx] = np.sum(self.delta[idx], axis = 0, keepdims=True)
     
-    #def update_minibatch(self):
-
-
+    def update_weights(self,eta):
+        for l in range(1, self.layers):
+            self.bias[l]    -= eta*self.nabla_b_C[l].T
+            self.weights[l] -= eta*self.nabla_w_C[l]
+    
+    
+    def SGD(self, epochs, mini_batches):
+        binds = divide_batches(X = self.a[0], nmb = mini_batches, batch_pick = 'random')    
+        for nepoch in range(epochs):
+            for m in range(mini_batches):
+                ind_batch = np.random.randint(mini_batches)
+                xtrain = self.a[0][binds[ind_batch]] # binds[ind_batch] are random indices according to the batch drawn by divide_batches
+                ytrain = self.target[binds[ind_batch]]
+                
     def sigma(self, af, zl):
         """
         Args:
         af - string, activation function
         zl - ndarray, neurons weighted input at layer l
         """
-
+        if af == "linear":
+            out = zl
         if af == "sigmoid":
             out = 1/(1 + np.exp(-zl))
         if af == "tanh":
@@ -145,16 +168,15 @@ class Neural_Network(object):
         af - string, activation function
         zl - ndarray, neurons weighted input at layer l
         """
-
+        if af == "linear":
+            out = 1
         if af == "sigmoid":
             s = self.sigma(af, zl)
-            out = s*(1 - s)
+            out = s.copy()*(1 - s.copy())
         if af == "tanh":
-            s = self.sigma(af, zl)
-            out = 1 - np.square(s)
+            out = 1/np.cosh(zl)
         if af == "relu":
             out = .5*(1 + np.sign(zl))
         if af == "leaky_relu":
             out = .5*( (1 - np.sign(zl))*1e-2 + (1 + np.sign(zl)))
-    
         return out

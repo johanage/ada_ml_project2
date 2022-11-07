@@ -87,10 +87,6 @@ def divide_batches(X, nmb, batch_pick):
     # shuffle indices if randomized batches
     if batch_pick == "random":
         np.random.shuffle(inds)# = inds[np.random.randint(n, size=n)]
-    # divide in clusters
-    if batch_pick == "clusters":
-        # do stuff
-        return 0
     Binds = [inds[nsamples*i:nsamples*(i+1)] for i in range(nmb)]
     return Binds
 
