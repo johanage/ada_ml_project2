@@ -5,35 +5,56 @@ from autograd import grad
 import numpy as np
 import autograd.numpy as np
 from optimization import divide_batches
+import matplotlib.pyplot as plt
+
 # defining the cost functions so that they work with autograd
 # and can be optimized wrt the output activations
+def grad_ols(y, a, **kwargs):
+    return (a-y)/y.shape[0]
+
+def grad_cross_entropy(y, a, **kwargs):
+    return (y - a)/( a*(1 - a) ) 
+    
 def cost_ols(y, a, **kwargs):
-    return np.mean(np.square(y-a))
+    return .5*np.sum(np.square(y-a))/y.shape[0]
 
 def cost_ridge(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
-    return np.mean(np.square(y-a)) + lmbda*np.mean(np.square(w))
+    return .5*np.sum(np.square(y-a))/y.shape[0] + lmbda*np.sum(np.square(w))
 
 def cost_lasso(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
-    return np.mean(np.square(y-a)) + lmbda*np.mean(np.abs(w))
+    return .5*np.sum(np.square(y-a))/y.shape[0]+ lmbda*np.sum(np.abs(w))
 
 def cross_entropy(y, a, **kwargs):
-    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )
+    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )/y.shape[0]
 
 def cross_entropy_l2reg(y, a, w, **kwargs):
-    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) ) + lmbda*np.mean(np.square(w))
+    lmbda = kwargs['lambda']
+    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )/y.shape[0] + lmbda*np.sum(np.square(w))
 
 def cross_entropy_l1reg(y, a, w, **kwargs):
-    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) ) + lmbda*np.mean(np.abs(w))
+    lmbda = kwargs['lambda']
+    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )/y.shape[0] + lmbda*np.sum(np.abs(w))
 
+# one-hot in numpy
+def to_categorical_numpy(integer_vector):
+    n_inputs = len(integer_vector)
+    n_categories = np.max(integer_vector) + 1
+    onehot_vector = np.zeros((n_inputs, n_categories))
+    onehot_vector[range(n_inputs), integer_vector] = 1
 
-def accuracy(t, y):
-    return np.mean( (t == y).astype(int) )
+    return onehot_vector
+
+def probs_to_binary(probabilities):
+    return (np.max(probabilities, axis=1, keepdims=True) == probabilities).astype(int)
+
+def accuracy(y, a):
+    return np.mean( (y == a).astype(int) )
 
 
 class Neural_Network(object):
-    def __init__(self, X, y, costfunc, eta):
+    def __init__(self, X, y, costfunc, eta, symbolic_differentiation = False):
         """
         The initialization of the NN.
 
@@ -42,6 +63,7 @@ class Neural_Network(object):
         y - ndarray, the target data
         costfunc - str, specification of type of cost function 
         eta - float, learning rate
+        specify_grad - bool, compute the gradient of the cost function from symbolic differentition
         """
         self.target = y
         self.Xdata_full = X
@@ -49,8 +71,13 @@ class Neural_Network(object):
         self.layers = 0
         self.nodes = {0 : X.shape[1]}
         self.afs = {}
+        # set costfunc
         self.costfunc = costfunc
-        self.grad_cost()
+        self.cost()
+        if symbolic_differentiation:
+            self.grad_cost_specific()
+        else:
+            self.grad_cost()
         self.a = {0 : X}
         self.weights = {}
         self.bias = {}
@@ -59,6 +86,7 @@ class Neural_Network(object):
         self.nabla_w_C = {}
         self.nabla_b_C = {}
         self.eta = eta
+
     def info(self):
         print("nodes ", [(k,v) for k,v in self.nodes.items()])
         print("activation functions ", [(k,v) for k,v in self.afs.items()])
@@ -69,6 +97,10 @@ class Neural_Network(object):
         print("delta key value.shape ", [(k,v.shape) for k,v in self.delta.items()])
         print("nabla_b_C key value.shape ", [(k,v.shape) for k,v in self.nabla_b_C.items()])
         print("nabla_w_C key value.shape ", [(k,v.shape) for k,v in self.nabla_w_C.items()])
+    
+    def eval_score(self, problem):
+        if problem == "classification":
+            self.score = accuracy(self.target, self.a[self.layers])
 
     def add_layer(self, nodes, af, weights = None, bias = None):
         """
@@ -84,9 +116,9 @@ class Neural_Network(object):
         self.nodes[l] = nodes
         self.afs[l] = af 
         if weights is not None: self.weights[l] = weights
-        else: self.weights[l] = np.random.normal(0,0.5, size=(self.nodes[l-1], self.nodes[l] ) ) 
+        else: self.weights[l] = np.random.normal(0,1, size=(self.nodes[l-1], self.nodes[l] ) )
         if bias is not None: self.bias[l] = bias
-        else: self.bias[l] = np.random.normal(0, 0.5, size=(self.nodes[l],1) )
+        else: self.bias[l] = np.random.normal(0,1, size=(self.nodes[l],1) )
    
     def output_layer(self, af, weights = None, bias = None):
         """
@@ -102,24 +134,38 @@ class Neural_Network(object):
         self.nodes[l] = self.nodes[0]
         self.afs[l] = af
         if weights is not None: self.weights[l] = weights
-        else: self.weights[l] = np.random.normal(0,0.5, size=(self.nodes[l-1], self.nodes[l] ) ) 
+        else: self.weights[l] = np.random.normal(0,1, size=(self.nodes[l-1], self.nodes[l] ) )
         if bias is not None: self.bias[l] = bias
-        else: self.bias[l] = np.random.normal(0, 0.5, size=(self.nodes[l], 1) ) 
-        
-    
-    def feed_forward(self):
-        """
-        Feed forward algorithm for all layers.
-        l - int, starts at 0, e.g. a[0] = X (input)
-        """
-        for l in range(1, self.layers+1):
-            self.z[l] = self.a[l-1] @ self.weights[l] + self.bias[l].T
-            self.a[l] = self.sigma(self.afs[l], self.z[l].copy()) 
-        
-    def grad_cost(self):
+        else: self.bias[l] = np.random.normal(0,1, size=(self.nodes[l], 1) ) 
+     
+    def cost(self):
         """
         Computes the gradient of the cost function wrt
         the output activations at layer l
+        """
+        if self.costfunc == 'ols':
+            self.C = cost_ols
+        if self.costfunc == 'ridge':
+            self.C = cost_ridge
+        if self.costfunc == 'lasso':
+            self.C = cost_lasso
+        if self.costfunc == 'cross_entropy':
+            self.C = cross_entropy
+        if self.costfunc == 'cross_entropy_l1reg':
+            self.C = cross_entropy_l1reg
+        if self.costfunc == 'cross_entropy_l2reg':
+            self.C = cross_entropy_l2reg
+    
+    def grad_cost_specific(self):
+        if self.costfunc == "ols":
+            self.nabla_a_C = grad_ols
+        if self.costfunc == "cross_entropy":
+            self.nabla_a_C = grad_cross_entropy
+    
+    def grad_cost(self):
+        """
+        Computes the gradient of the cost function using autograd
+        wrt the output activations at layer l
         """
         if self.costfunc == 'ols':            
             self.nabla_a_C = grad(cost_ols, 1)
@@ -133,15 +179,31 @@ class Neural_Network(object):
             self.nabla_a_C = grad(cross_entropy_l1reg, 1)
         if self.costfunc == 'cross_entropy_l2reg':
             self.nabla_a_C = grad(cross_entropy_l2reg, 1)
+    
+    def feed_forward(self):
+        """
+        Feed forward algorithm for all layers.
+        """
+        for l in range(1, self.layers+1):
+            self.z[l] = self.a[l-1] @ self.weights[l] + self.bias[l].T
+            self.a[l] = self.sigma(self.afs[l], self.z[l].copy()) 
+    
+    def predict(self, X):
+        self.a[0] =  X
+        self.feed_forward()
+        return self.a[self.layers]
 
     def delta_L(self, **kwargs):
         # compute the gradient for the last layer to start backpropagation
-        gradient = self.nabla_a_C(self.target, self.a[self.layers], **kwargs)
-        dL = np.multiply(gradient, self.sigma_prime(self.afs[self.layers], self.z[self.layers]) )
-        self.delta = {self.layers : dL.copy()}
+        if self.costfunc == 'ols' or self.costfunc == 'cross_entropy':
+            gradient = self.nabla_a_C(self.target, self.a[self.layers], **kwargs)
+        else:
+            gradient = self.nabla_a_C(self.target, self.a[self.layers], self.weights[self.layers], **kwargs)
+        sigma_prime_L = self.sigma_prime(self.afs[self.layers], self.z[self.layers])
+        dL = np.multiply(gradient, sigma_prime_L )
+        self.delta = {self.layers : dL }
 
-    def delta_l(self,l, **kwargs):
-        #dl = np.multiply(self.weights[l+1].T @ self.delta[l+1], self.sigma_prime(self.afs[l], self.z[l]) )
+    def delta_l(self,l):
         dl = np.multiply(self.delta[l+1] @ self.weights[l+1].T, self.sigma_prime(self.afs[l], self.z[l]) )
         self.delta[l] = dl.copy()
         
@@ -152,8 +214,8 @@ class Neural_Network(object):
             idx = self.layers-l
             if l > 0:
                 self.delta_l(idx)
-            self.nabla_w_C[idx] = self.a[idx-1].T @ self.delta[idx]
             self.nabla_b_C[idx] = np.sum(self.delta[idx], axis = 0, keepdims=True)
+            self.nabla_w_C[idx] = self.a[idx-1].T @ self.delta[idx]
     
     def update_weights(self, size_mini_batches):
         for l in range(1, self.layers):
@@ -161,20 +223,47 @@ class Neural_Network(object):
             self.weights[l] -= self.eta*self.nabla_w_C[l]/size_mini_batches
     
     
-    def SGD(self, epochs, mini_batches, **kwargs):
-        binds = divide_batches(X = self.Xdata_full, nmb = mini_batches, batch_pick = 'random')    
+    def SGD(self, epochs, size_mini_batches, printout = False, plot=False, **kwargs):
+        """
+        Stochastic gradient descent for optimizin the weights and biases in the NN.
+        Tip: choose number of minibatches s.t. the lenth of each batch is a power of 2.
+        
+        Args:
+        - epochs            - int, number of epochs
+        - size_mini_batches - int, number of samples in each mini batch (approx)
+        - printout          - bool, prints out information on loss wrt to epoch number and batch number
+        - plot              - bool, plots the (epoch number, loss)
+        """
+        mini_batches = self.Ydata_full.shape[0]//size_mini_batches
+        losses = np.zeros(epochs)
         for nepoch in range(epochs):
             for m in range(mini_batches):
-                ind_batch = np.random.randint(mini_batches)
-                self.a[0] = self.Xdata_full[binds[ind_batch]] # binds[ind_batch] are random indices according to the batch drawn by divide_batches
-                self.target = self.Ydata_full[binds[ind_batch]]
+                ind_batch = np.random.randint(self.Ydata_full.shape[0]-mini_batches)
+                binds = divide_batches(X = self.Xdata_full, nmb = mini_batches, istart = ind_batch)    
+                # set the first activation output and target to the batch samples 
+                self.a[0] = self.Xdata_full[binds].copy()
+                self.target = self.Ydata_full[binds].copy()
+                # do feed forward on the batch
                 self.feed_forward()
-                self.backpropagation()
-                self.update_weights(len(binds[ind_batch]))
-                loss = cost_ols(self.target, self.a[self.layers], **kwargs)
-                #print(loss)
-                print("Epoch {0}/{1}, batch {2}/{3}, loss: {4:.4f}".format(nepoch+1,epochs,m+1,mini_batches,np.mean(loss)) )
-        # reset the target and the 0th activation output to y and X?
+                # do backprop on the batch
+                self.backpropagation(**kwargs)
+                # update weights and biases
+                self.update_weights(size_mini_batches)
+                # compute loss to indicate performance wrt epoch number
+                if self.costfunc == 'ols' or self.costfunc == 'cross_entropy':
+                    loss = self.C(self.target, self.a[self.layers], **kwargs)
+                else:
+                    loss = self.C(self.target, self.a[self.layers], self.weights[self.layers], **kwargs)
+                losses[nepoch] += loss
+                # print information
+                if printout:
+                    print("Epoch {0}/{1}, batch {2}/{3}, loss: 1e{4:.4f}".format(nepoch+1,epochs,m+1,mini_batches, np.log10(np.mean(loss))) )
+        if plot:
+            plt.plot(np.arange(epochs) + 1, losses/mini_batches)
+            plt.xlabel("Epochs")
+            plt.ylabel("$C(\\theta)$")
+            plt.show()
+
     def sigma(self, af, zl):
         """
         Args:
@@ -196,7 +285,7 @@ class Neural_Network(object):
         
         return out
            
-    def sigma_prime(self, af, zl):
+    def sigma_prime(self, af, zl, delta = None):
         """
         Args:
         af - string, activation function
@@ -206,7 +295,7 @@ class Neural_Network(object):
             out = 1
         if af == "sigmoid":
             s = self.sigma(af, zl)
-            out = s.copy()*(1 - s.copy())
+            out = s*(1 - s)
         if af == "tanh":
             out = 1/np.cosh(zl)
         if af == "relu":
@@ -214,6 +303,6 @@ class Neural_Network(object):
         if af == "leaky_relu":
             out = .5*( (1 - np.sign(zl))*1e-2 + (1 + np.sign(zl)))
         if af == "softmax":
-            out = np.exp(zl)/np.sum(np.exp(zl), axis = 1, keepdims=True)
-
+            s = self.sigma(af, zl)
+            out = s*(1 - s)
         return out
