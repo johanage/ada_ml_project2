@@ -74,7 +74,7 @@ nn.feed_forward()
 
 # do SGD
 # epochs, mini batches
-nn.SGD(500, 64,  **{'lambda' : 1e-3}, plot=True)
+nn.SGD(500, 32,  **{'lambda' : 1e-3}, plot=True)
 # set data to original and predict using weights computed with SGD
 nn.target = Y_test_onehot
 nn.a[0] = X_test

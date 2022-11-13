@@ -14,7 +14,13 @@ def grad_ols(y, a, **kwargs):
 
 def grad_cross_entropy(y, a, **kwargs):
     return (y - a)/( a*(1 - a) ) 
-    
+
+def grad_cross_entropy_l2reg(y, a, w, **kwargs):
+    return (y - a)/( a*(1 - a) ) + kwargs['lambda']*w
+
+def grad_cross_entropy_l1reg(y, a, w, **kwargs):
+    return (y - a)/( a*(1 - a) ) + kwargs['lambda']*np.sign(w)
+
 def cost_ols(y, a, **kwargs):
     return .5*np.sum(np.square(y-a))/y.shape[0]
 
@@ -31,7 +37,7 @@ def cross_entropy(y, a, **kwargs):
 
 def cross_entropy_l2reg(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
-    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )/y.shape[0] + lmbda*np.sum(np.square(w))
+    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )/y.shape[0] + .5* lmbda*np.sum(np.square(w))
 
 def cross_entropy_l1reg(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
@@ -98,10 +104,6 @@ class Neural_Network(object):
         print("nabla_b_C key value.shape ", [(k,v.shape) for k,v in self.nabla_b_C.items()])
         print("nabla_w_C key value.shape ", [(k,v.shape) for k,v in self.nabla_w_C.items()])
     
-    def eval_score(self, problem):
-        if problem == "classification":
-            self.score = accuracy(self.target, self.a[self.layers])
-
     def add_layer(self, nodes, af, weights = None, bias = None):
         """
         To add a layer to the NN.
@@ -115,6 +117,10 @@ class Neural_Network(object):
         l = self.layers
         self.nodes[l] = nodes
         self.afs[l] = af 
+        if af == 'sigmoid':
+            self.scale = np.sqrt(2/(self.a[0].shape[0] + self.target.shape[0]) )
+        else:
+            self.scale = np.sqrt(6/(self.a[0].shape[0] + self.target[0]) )
         if weights is not None: self.weights[l] = weights
         else: self.weights[l] = np.random.normal(0,1, size=(self.nodes[l-1], self.nodes[l] ) )
         if bias is not None: self.bias[l] = bias
@@ -161,7 +167,11 @@ class Neural_Network(object):
             self.nabla_a_C = grad_ols
         if self.costfunc == "cross_entropy":
             self.nabla_a_C = grad_cross_entropy
-    
+        if self.costfunc == "cross_entropy_l2reg":
+            self.nabla_a_C = grad_cross_entropy_l2reg
+        if self.costfunc == "cross_entropy_l1reg":
+            self.nabla_a_C = grad_cross_entropy_l1reg
+
     def grad_cost(self):
         """
         Computes the gradient of the cost function using autograd
@@ -199,6 +209,7 @@ class Neural_Network(object):
             gradient = self.nabla_a_C(self.target, self.a[self.layers], **kwargs)
         else:
             gradient = self.nabla_a_C(self.target, self.a[self.layers], self.weights[self.layers], **kwargs)
+        print("max gradient ", np.max(gradient))
         sigma_prime_L = self.sigma_prime(self.afs[self.layers], self.z[self.layers])
         dL = np.multiply(gradient, sigma_prime_L )
         self.delta = {self.layers : dL }
@@ -218,12 +229,12 @@ class Neural_Network(object):
             self.nabla_w_C[idx] = self.a[idx-1].T @ self.delta[idx]
     
     def update_weights(self, size_mini_batches):
-        for l in range(1, self.layers):
+        for l in range(1, self.layers+1):
             self.bias[l]    -= self.eta*self.nabla_b_C[l].T/size_mini_batches
             self.weights[l] -= self.eta*self.nabla_w_C[l]/size_mini_batches
     
     
-    def SGD(self, epochs, size_mini_batches, printout = False, plot=False, **kwargs):
+    def SGD(self, epochs, size_mini_batches,tol=1e-6, printout = False, plot=False, **kwargs):
         """
         Stochastic gradient descent for optimizin the weights and biases in the NN.
         Tip: choose number of minibatches s.t. the lenth of each batch is a power of 2.
@@ -234,11 +245,14 @@ class Neural_Network(object):
         - printout          - bool, prints out information on loss wrt to epoch number and batch number
         - plot              - bool, plots the (epoch number, loss)
         """
-        mini_batches = self.Ydata_full.shape[0]//size_mini_batches
+        nsamples = self.Ydata_full.shape[0]
+        mini_batches = nsamples//size_mini_batches
         losses = np.zeros(epochs)
         for nepoch in range(epochs):
+            bias_old = self.bias[self.layers].copy()
+            weights_old = self.weights[self.layers].copy()
             for m in range(mini_batches):
-                ind_batch = np.random.randint(self.Ydata_full.shape[0]-mini_batches)
+                ind_batch = np.random.randint(nsamples-mini_batches)
                 binds = divide_batches(X = self.Xdata_full, nmb = mini_batches, istart = ind_batch)    
                 # set the first activation output and target to the batch samples 
                 self.a[0] = self.Xdata_full[binds].copy()
@@ -248,7 +262,9 @@ class Neural_Network(object):
                 # do backprop on the batch
                 self.backpropagation(**kwargs)
                 # update weights and biases
+                #print("Before update: \n", self.weights)
                 self.update_weights(size_mini_batches)
+                #print("After update: \n", self.weights)
                 # compute loss to indicate performance wrt epoch number
                 if self.costfunc == 'ols' or self.costfunc == 'cross_entropy':
                     loss = self.C(self.target, self.a[self.layers], **kwargs)
@@ -257,7 +273,11 @@ class Neural_Network(object):
                 losses[nepoch] += loss
                 # print information
                 if printout:
+                    print("max of activation output: ", np.max(self.a[self.layers-1]))
                     print("Epoch {0}/{1}, batch {2}/{3}, loss: 1e{4:.4f}".format(nepoch+1,epochs,m+1,mini_batches, np.log10(np.mean(loss))) )
+            print("Max delta weights: ", np.max(self.weights[self.layers] - weights_old))
+            print("Max delta bias: ", np.max(self.bias[self.layers] - bias_old))
+            if np.max(np.abs(self.weights[self.layers]-weights_old)) <=tol: break 
         if plot:
             plt.plot(np.arange(epochs) + 1, losses/mini_batches)
             plt.xlabel("Epochs")
@@ -277,6 +297,7 @@ class Neural_Network(object):
         if af == "tanh":
             out = np.tanh(zl)
         if af == "relu":
+            #out = np.maximum(zl, 1e-8)
             out = np.maximum(zl, 0)
         if af == "leaky_relu":
             out = .5*( (1 - np.sign(zl))*1e-2*zl + (1 + np.sign(zl))*zl)

@@ -1,5 +1,5 @@
 # to test the NN on a classification problem
-from plot import plot_breast_data
+from plot import plot_heatmap
 import tensorflow as tf
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Sequential      #This allows appending layers to existing models
@@ -16,7 +16,7 @@ from sklearn import datasets
 from sklearn.model_selection import train_test_split
 from neural_network import *
 # for reproducability
-np.random.seed(0)
+np.random.seed(100)
 # load mnist dataset
 cancer = datasets.load_breast_cancer()
 
@@ -52,8 +52,10 @@ X=np.hstack((X,temp))
 temp=np.reshape(x[:,8],(len(x[:,8]),1))
 X=np.hstack((X,temp))       
 
-X_train,X_test,y_train,y_test= train_test_split(X,y,test_size=0.1)   #Split datasets into training and testing
 
+X_train,X_test,y_train,y_test= train_test_split(X,y,test_size=0.1, random_state = 100)   #Split datasets into training and testing
+# scale and center
+X_train = (X_train - np.mean(X_train,axis=0, keepdims=True) )/np.std(X_train, axis=0)
 y_train=to_categorical_numpy(y_train)     #Convert labels to categorical when using categorical cross entropy
 y_test=to_categorical_numpy(y_test)
 
@@ -69,8 +71,8 @@ eta=np.logspace(-3,-1,3)                    #Define vector of learning rates (pa
 lamda=0.01                                  #Define hyperparameter
 n_layers=2                                  #Define number of hidden layers in the model
 n_neuron=np.logspace(0,3,4,dtype=int)       #Define number of neurons per layer
-epochs=100                                   #Number of reiterations over the input data
-batch_size=100                              #Number of samples per gradient update
+epochs=200                                   #Number of reiterations over the input data
+batch_size=16                              #Number of samples per gradient update
 
 # %%
 
@@ -110,31 +112,27 @@ Train_accuracy_own = np.zeros((len(n_neuron),len(eta)))      #Define matrices to
 Test_accuracy_own  = np.zeros((len(n_neuron),len(eta)))       #of learning rate and number of hidden neurons for 
 for i in range(len(n_neuron)):     #run loops over hidden neurons and learning rates to calculate 
     for j in range(len(eta)):      #accuracy scores 
-        nn = Neural_Network(X_train,  y_train, costfunc = 'cross_entropy', eta=eta[j], symbolic_differentiation = True)
-        nn.add_layer(nodes = n_neuron[i], af = 'relu')
-        nn.add_layer(nodes = n_neuron[i], af = 'relu')
-        nn.add_layer(nodes = 2, af = 'softmax')
+        nn = Neural_Network(X_train,  y_train, costfunc = 'cross_entropy_l2reg', eta=eta[j], symbolic_differentiation = True)
+        nn.add_layer(nodes = n_neuron[i], af = 'sigmoid')
+        #nn.add_layer(nodes = n_neuron[i], af = 'sigmoid')
+        nn.add_layer(nodes = 2, af = 'sigmoid')
         nn.feed_forward()   
         # do SGD
         # epochs, mini batches
         nn.SGD(epochs, batch_size,printout=True,**{'lambda' : lamda})
         
         # set data to test data and predict using weights computed with SGD
-        nn.target = y_train
-        nn.a[0] = X_train
-        nn.feed_forward()
-        p2b = probs_to_binary(probabilities = nn.a[nn.layers])
-        acc = accuracy(y = nn.target, a = p2b)
-        Train_accuracy_own[i,j] = acc
+        aL_train= nn.predict(X_train)
+        p2b_train = probs_to_binary(probabilities = aL_train)
+        acc_train = accuracy(y = y_train, a = p2b_train)
+        Train_accuracy_own[i,j] = acc_train
         
         # set data to test data and predict using weights computed with SGD
-        nn.target = y_test
-        nn.a[0] = X_test
-        nn.feed_forward()
-        p2b = probs_to_binary(probabilities = nn.a[nn.layers])
-        acc = accuracy(y = nn.target, a = p2b)
-        Test_accuracy_own[i,j] = acc
-
-plot_breast_data(eta,n_neuron,Train_accuracy_own, 'training')
-plot_breast_data(eta,n_neuron,Test_accuracy_own, 'testing')
+        aL_test = nn.predict(X_test)
+        p2b_test = probs_to_binary(probabilities = aL_test)
+        acc_test = accuracy(y = y_test, a = p2b_test)
+        Test_accuracy_own[i,j] = acc_test
+import os
+plot_heatmap(eta,n_neuron,Train_accuracy_own, title = 'Train', store = True, store_dir = os.getcwd() + "/plots/prob_d/neurons_eta_heatmap_breast_")
+plot_heatmap(eta,n_neuron,Test_accuracy_own, title = 'Test', store = True, store_dir = os.getcwd() + "/plots/prob_d/neurons_eta_heatmap_breast_")
 
