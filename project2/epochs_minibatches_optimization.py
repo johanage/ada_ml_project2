@@ -1,4 +1,5 @@
 # to test the optimization class
+import os
 from plot import *
 from metrics import *
 from optimization import *
@@ -18,9 +19,10 @@ y = test_func_poly_deg_p(deg = deg, avec = avec, x = x)[:,np.newaxis]
 ynoisy = y + np.random.normal(size=y.shape)
 
 # set the parameters
-tol = 1e-4
+tol = 1e-8
 epochs = 400
-mini_batches = np.array([16, 32, 64, 128])
+n_mini_batches = np.array([10,25,50,75,100])
+size_mini_batches = y.shape[0]//n_mini_batches
 eta = 1e-2
 lmbda = 1e-3
 # scikit learn for comparison
@@ -33,17 +35,22 @@ for i in range(epochs):
     mses_skl[i] = MSE(y, reg.predict(X))
 #plt.plot(np.arange(epochs) + 1, mses_skl, label="MLPRegressor")
 
-mses_sgd = np.zeros((epochs,len(mini_batches)))
+mses = []
+method = 'sgd'
 for j in range(len(mini_batches)):
     optimizer = optimizers(X, ynoisy, cost_Ridge, tol=tol, eta = eta, w_mom = False, verbose=True)
-    optimizer(method = 'sgd',epochs = epochs, size_mini_batches = mini_batches[j], **{'lambda' : lmbda, 'scheme': 'linear', 't0' : 1e-1, 't1' : 1e-2})
-    mses_sgd[j] = MSE(y, X @ optimizer.theta)
+    optimizer(method = method,epochs = epochs, size_mini_batches = size_mini_batches[j], 
+              store_mse = True, **{'lambda' : lmbda, 'scheme': 'linear', 't0' : 1e-1, 't1' : 1e-2})
+    mses.append(optimizer.mse)
 
+fig = plt.figure()
 for i in range(len(mini_batches)):
-    plt.plot(np.arange(epochs)+1, mses_sgd[:,i], label="SGD %i mini batches"%(mini_batches[i]))
-
+    # per epoch
+    plt.plot(np.arange(epochs)+1, mses_sgd[i][:,-1], label="SGD %i mini batches"%(n_mini_batches[i]))
+    # per iteration
+    #plt.plot(np.arange(len(mses_sgd[i].ravel()))+1, mses_sgd[i].ravel(), label="SGD %i mini batches"%(mini_batches[i]))
 plt.xlabel("Epochs")
 plt.ylabel("MSE")
-
 plt.legend()
 plt.show()
+fig.savefig(os.getcwd() + "/plots/prob_a/epochs_mini_batches_mse_%s.png"%method, dpi=150)

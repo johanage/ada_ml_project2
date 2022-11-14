@@ -3,15 +3,15 @@ import numpy as np
 import autograd.numpy as np
 # cost functions
 def cost_OLS(X, y, theta, **kwargs):
-    return .5*np.mean((y-X @ theta)**2)
+    return .5*np.sum((y-X @ theta)**2)/y.shape[0]
 
 def cost_Ridge(X, y, theta, **kwargs):
     lmbda = kwargs['lambda']
-    return .5*np.mean((y -  X @ theta )**2) + lmbda*np.sum(theta**2)
+    return .5*np.sum((y -  X @ theta )**2)/y.shape[0] + lmbda*np.sum(theta**2)
 
 def cost_Lasso(X, y, theta, **kwargs):
     lmbda = kwargs['lambda']
-    return .5*np.mean( ( y- X @ theta )**2 ) + lmbda*np.sum(np.abs(theta))
+    return .5*np.sum( ( y- X @ theta )**2 )/y.shape[0] + lmbda*np.sum(np.abs(theta))
 
 from autograd import grad
 
@@ -65,12 +65,14 @@ class optimizers:
         self.batch_pick = batch_pick
 
     def __call__(self, method, epochs = None, size_mini_batches = None, 
-                 w_mom = False, verbose = False, **kwargs):
+                 w_mom = False, verbose = False, store_mse = False, **kwargs):
         if method not in ['grad_desc', 'grad_desc_mom', 'ADAgrad_gd']:
             assert epochs is not None, ("Have to assign epochs for stochastic methods")
             assert size_mini_batches is not None, ("Have to assign size of batches for stochastic methods")
             # number of mini batche# number of mini batches
             nmb = self.nsamples//size_mini_batches
+            if store_mse:
+                self.mse = np.zeros((epochs, nmb))
             for iepoch in range(epochs): # iterating over nr of epochs
                 for imb in range(nmb): # iterating over mini batches
                     count = iepoch*nmb + imb + 1
@@ -92,7 +94,9 @@ class optimizers:
                     if method == 'adagrad_sgd': self.ADAgrad(gradients)
                     if method == 'rms_prop' : self.RMSprop(gradients)
                     if method == 'adam' : self.ADAM(gradients, count)
-                    self.bconv = self.check_conv(theta_old)
+                    if store_mse: self.mse[iepoch, imb] = cost_OLS(self.X_data_full,self.Y_data_full,  self.theta)
+                    #self.bconv = self.check_conv(theta_old)
+                    self.bconv = np.sum(np.abs(gradients)) <= self.tol
                     if self.bconv: break
                 if self.bconv: break
         else:

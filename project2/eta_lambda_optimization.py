@@ -18,7 +18,7 @@ y = test_func_poly_deg_p(deg = deg, avec = avec, x = x)[:,np.newaxis]
 ynoisy = y + np.random.normal(size=y.shape)
 plt.plot(x, ynoisy, label='orig data')
 
-max_iter = int(2e4)
+max_iter = 500
 tol = 1e-4
 lambdas = np.array(list(np.logspace(-5,1,5)) + [0])
 etas = np.logspace(-5,-1,4)
@@ -40,19 +40,30 @@ plot_heatmap(etas,lambdas,mses_skl, title = 'MSE SGD sklearn', store = True,
              store_dir = os.getcwd() + "/plots/prob_a/eta_lambda_mses_sgd_sklearn_heatmap",
              xlabel = "$\\eta$", ylabel='$\\lambda$', cbar_label = 'MSE', vmin = np.min(mses_skl), vmax = np.max(mses_skl))
 
-mses_adam = np.zeros((len(lambdas),len(etas)))
-for j in range(len(etas)):
-    for i in range(len(lambdas)):
-        optimizer= optimizers(X, ynoisy, cost_Ridge, eta = etas[j], beta1 = 1e-2, beta2 = 1e-4, w_mom = True, verbose=True)
-        optimizer(method = 'adam', epochs = 200, size_mini_batches = 100, **{'lambda' : lambdas[i], 'scheme': 'linear', 't0' : 1e-1, 't1' : 1e-2})
-        mses_adam[i,j] = MSE(y, X @ optimizer.theta)
-        plt.plot(x,X @ optimizer.theta, label="ADAM", ls='--')
-plt.plot(x,y, color = 'k')
-plt.legend()
-plt.show()
+labels = {'sgd' : 'SGD', 'rms_prop' : 'RMS propagation', 'adagrad' : 'Adagrad', 'adam' : 'ADAM'}
+methods = ['sgd', 'rms_prop','adagrad', 'adam']
+gamma = 1e-3
+beta1 = 1e-2
+beta2 = 1e-4
+plot_lines = False
+for method in methods:
+    mses = np.zeros((len(lambdas),len(etas)))
+    for j in range(len(etas)):
+        for i in range(len(lambdas)):
+            optimizer= optimizers(X, ynoisy, cost_Ridge, eta = etas[j], gamma = gamma, beta1 = beta1, beta2 = beta2, w_mom = True, verbose=True)
+            optimizer(method = method, epochs = 200, size_mini_batches = 100, **{'lambda' : lambdas[i], 'scheme': 'linear', 't0' : 1e-1, 't1' : 1e-2})
+            mses[i,j] = MSE(y, X @ optimizer.theta)
+            if plot_lines:
+                plt.plot(x,X @ optimizer.theta, label=labels[method], ls='--')
+    plot_heatmap(etas,lambdas,mses, title = 'MSE %s'%labels[method], store = True, 
+                 store_dir = os.getcwd() + "/plots/prob_a/eta_lambda_mses_%s_heatmap"%method,
+                 xlabel = "$\\eta$", ylabel='$\\lambda$', cbar_label = 'MSE', vmin = np.min(mses), vmax = np.max(mses))
 
-plot_heatmap(etas,lambdas,mses_adam, title = 'MSE ADAM', store = True, 
-             store_dir = os.getcwd() + "/plots/prob_a/eta_lambda_mses_adam_heatmap",
-             xlabel = "$\\eta$", ylabel='$\\lambda$', cbar_label = 'MSE', vmin = np.min(mses_adam), vmax = np.max(mses_adam))
+
+
+if plot_lines:
+    plt.plot(x,y, color = 'k')
+    plt.legend()
+    plt.show()
 
 

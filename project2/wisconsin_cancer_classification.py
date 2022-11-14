@@ -63,20 +63,20 @@ del temp1,temp2,temp
 
 print("X_train shape: ", X_train.shape, "y_train shape: ", y_train.shape)
 
-# %%
-
-# Define tunable parameters"
-
 eta=np.logspace(-3,-1,3)                    #Define vector of learning rates (parameter to SGD optimiser)
 lamda=0.01                                  #Define hyperparameter
 n_layers=2                                  #Define number of hidden layers in the model
 n_neuron=np.logspace(0,3,4,dtype=int)       #Define number of neurons per layer
-epochs=200                                   #Number of reiterations over the input data
-batch_size=16                              #Number of samples per gradient update
+epochs= 100                                   #Number of reiterations over the input data
+batch_size=32#y_train.shape[0]#16                              #Number of samples per gradient update
 
 # %%
 
-"""Define function to return Deep Neural Network model"""
+"""
+
+Define function to return Deep Neural Network model
+
+"""
 
 def NN_model(inputsize,n_layers,n_neuron,eta,lamda):
     model=Sequential()      
@@ -112,27 +112,26 @@ Train_accuracy_own = np.zeros((len(n_neuron),len(eta)))      #Define matrices to
 Test_accuracy_own  = np.zeros((len(n_neuron),len(eta)))       #of learning rate and number of hidden neurons for 
 for i in range(len(n_neuron)):     #run loops over hidden neurons and learning rates to calculate 
     for j in range(len(eta)):      #accuracy scores 
-        nn = Neural_Network(X_train,  y_train, costfunc = 'cross_entropy_l2reg', eta=eta[j], symbolic_differentiation = True)
+        nn = Neural_Network(X_train,  y_train, costfunc = 'cross_entropy', eta=eta[j], symbolic_differentiation = True)
         nn.add_layer(nodes = n_neuron[i], af = 'sigmoid')
-        #nn.add_layer(nodes = n_neuron[i], af = 'sigmoid')
         nn.add_layer(nodes = 2, af = 'sigmoid')
         nn.feed_forward()   
+
         # do SGD
-        # epochs, mini batches
-        nn.SGD(epochs, batch_size,printout=True,**{'lambda' : lamda})
-        
+        print("Epochs: ", epochs, " # mini batch size :", batch_size)
+        nn.SGD(epochs = epochs, size_mini_batches = batch_size, printout=True,**{'lambda' : lamda})
+
         # set data to test data and predict using weights computed with SGD
         aL_train= nn.predict(X_train)
         p2b_train = probs_to_binary(probabilities = aL_train)
         acc_train = accuracy(y = y_train, a = p2b_train)
         Train_accuracy_own[i,j] = acc_train
-        
+
         # set data to test data and predict using weights computed with SGD
         aL_test = nn.predict(X_test)
         p2b_test = probs_to_binary(probabilities = aL_test)
         acc_test = accuracy(y = y_test, a = p2b_test)
         Test_accuracy_own[i,j] = acc_test
-import os
 plot_heatmap(eta,n_neuron,Train_accuracy_own, title = 'Train', store = True, store_dir = os.getcwd() + "/plots/prob_d/neurons_eta_heatmap_breast_")
 plot_heatmap(eta,n_neuron,Test_accuracy_own, title = 'Test', store = True, store_dir = os.getcwd() + "/plots/prob_d/neurons_eta_heatmap_breast_")
 

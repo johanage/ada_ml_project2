@@ -13,13 +13,13 @@ def grad_ols(y, a, **kwargs):
     return (a-y)/y.shape[0]
 
 def grad_cross_entropy(y, a, **kwargs):
-    return (y - a)/( a*(1 - a) ) 
+    return (a - y)/( a*(1 - a) ) 
 
 def grad_cross_entropy_l2reg(y, a, w, **kwargs):
-    return (y - a)/( a*(1 - a) ) + kwargs['lambda']*w
+    return (a - y)/( a*(1 - a) ) + kwargs['lambda']*np.sum(w,axis=0).T
 
 def grad_cross_entropy_l1reg(y, a, w, **kwargs):
-    return (y - a)/( a*(1 - a) ) + kwargs['lambda']*np.sign(w)
+    return (a - y)/( a*(1 - a) ) + kwargs['lambda']*np.sum(np.sign(w, axis=0)).T
 
 def cost_ols(y, a, **kwargs):
     return .5*np.sum(np.square(y-a))/y.shape[0]
@@ -33,15 +33,21 @@ def cost_lasso(y, a, w, **kwargs):
     return .5*np.sum(np.square(y-a))/y.shape[0]+ lmbda*np.sum(np.abs(w))
 
 def cross_entropy(y, a, **kwargs):
-    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )/y.shape[0]
+    # add epsilon in log to avoid divide by zero
+    epsilon = 1e-10
+    return - np.sum( y*np.log(a + epsilon) + (1-y)*np.log(1-a+epsilon) )/y.shape[0]
 
 def cross_entropy_l2reg(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
-    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )/y.shape[0] + .5* lmbda*np.sum(np.square(w))
+    # add epsilon in log to avoid divide by zero
+    epsilon = 1e-10
+    return - np.sum( y*np.log(a+epsilon) + (1-y)*np.log(1-a+epsilon) )/y.shape[0] + .5* lmbda*np.sum(np.square(w))
 
 def cross_entropy_l1reg(y, a, w, **kwargs):
     lmbda = kwargs['lambda']
-    return - np.sum( y*np.log(a) + (1-y)*np.log(1-a) )/y.shape[0] + lmbda*np.sum(np.abs(w))
+    # add epsilon in log to avoid divide by zero
+    epsilon = 1e-10
+    return - np.sum( y*np.log(a+epsilon) + (1-y)*np.log(1-a+epsilon) )/y.shape[0] + lmbda*np.sum(np.abs(w))
 
 # one-hot in numpy
 def to_categorical_numpy(integer_vector):
@@ -49,14 +55,13 @@ def to_categorical_numpy(integer_vector):
     n_categories = np.max(integer_vector) + 1
     onehot_vector = np.zeros((n_inputs, n_categories))
     onehot_vector[range(n_inputs), integer_vector] = 1
-
     return onehot_vector
 
 def probs_to_binary(probabilities):
-    return (np.max(probabilities, axis=1, keepdims=True) == probabilities).astype(int)
+    return (np.round(probabilities)).astype(int)
 
 def accuracy(y, a):
-    return np.mean( (y == a).astype(int) )
+    return sum( [tuple(y[i]) == tuple(a[i]) for i in range(y.shape[0])] )/y.shape[0]
 
 
 class Neural_Network(object):
@@ -205,13 +210,16 @@ class Neural_Network(object):
 
     def delta_L(self, **kwargs):
         # compute the gradient for the last layer to start backpropagation
-        if self.costfunc == 'ols' or self.costfunc == 'cross_entropy':
-            gradient = self.nabla_a_C(self.target, self.a[self.layers], **kwargs)
+        if self.costfunc == 'cross_entropy':
+            dL = grad_ols(self.target, self.a[self.layers], **kwargs)
         else:
-            gradient = self.nabla_a_C(self.target, self.a[self.layers], self.weights[self.layers], **kwargs)
-        print("max gradient ", np.max(gradient))
-        sigma_prime_L = self.sigma_prime(self.afs[self.layers], self.z[self.layers])
-        dL = np.multiply(gradient, sigma_prime_L )
+            if self.costfunc == 'ols':
+                gradient = self.nabla_a_C(self.target, self.a[self.layers], **kwargs)
+            else:
+                gradient = self.nabla_a_C(self.target, self.a[self.layers], self.weights[self.layers], **kwargs)
+            print("max gradient ", np.max(gradient))
+            sigma_prime_L = self.sigma_prime(self.afs[self.layers], self.z[self.layers])
+            dL = np.multiply(gradient, sigma_prime_L )
         self.delta = {self.layers : dL }
 
     def delta_l(self,l):
@@ -247,6 +255,7 @@ class Neural_Network(object):
         """
         nsamples = self.Ydata_full.shape[0]
         mini_batches = nsamples//size_mini_batches
+        print(" # mini batches", mini_batches)
         losses = np.zeros(epochs)
         for nepoch in range(epochs):
             bias_old = self.bias[self.layers].copy()
