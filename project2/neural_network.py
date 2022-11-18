@@ -6,20 +6,28 @@ import numpy as np
 import autograd.numpy as np
 from optimization import divide_batches
 import matplotlib.pyplot as plt
+from optimization import *
+from project1 import R2score
 
 # defining the cost functions so that they work with autograd
 # and can be optimized wrt the output activations
 def grad_ols(y, a, **kwargs):
     return (a-y)/y.shape[0]
 
+def grad_ridge(y, a,w, **kwargs):
+    return (a-y)/y.shape[0] + kwargs['lambda']*np.sum(w,axis=0).T
+
+def grad_lasso(y,a,w,**kwargs):
+    return (a-y)/y.shape[0] + kwargs['lambda']*np.sum(np.sign(w, axis=0)).T
+
 def grad_cross_entropy(y, a, **kwargs):
-    return (a - y)/( a*(1 - a) ) 
+    return (a - y)/(y.shape[0]*a*(1 - a) ) 
 
 def grad_cross_entropy_l2reg(y, a, w, **kwargs):
-    return (a - y)/( a*(1 - a) ) + kwargs['lambda']*np.sum(w,axis=0).T
+    return (a - y)/( y.shape[0]*a*(1 - a) ) + kwargs['lambda']*np.sum(w,axis=0).T
 
 def grad_cross_entropy_l1reg(y, a, w, **kwargs):
-    return (a - y)/( a*(1 - a) ) + kwargs['lambda']*np.sum(np.sign(w, axis=0)).T
+    return (a - y)/( y.shape[0]*a*(1 - a) ) + kwargs['lambda']*np.sum(np.sign(w, axis=0)).T
 
 def cost_ols(y, a, **kwargs):
     return .5*np.sum(np.square(y-a))/y.shape[0]
@@ -65,7 +73,8 @@ def accuracy(y, a):
 
 
 class Neural_Network(object):
-    def __init__(self, X, y, costfunc, eta, symbolic_differentiation = False):
+    def __init__(self, X, y, costfunc, eta, symbolic_differentiation = False,
+                 method = 'sgd', w_mom = False, beta1 = 0.9, beta2 = 0.99, gamma = 0.9, delta = 1e-8):
         """
         The initialization of the NN.
 
@@ -97,6 +106,27 @@ class Neural_Network(object):
         self.nabla_w_C = {}
         self.nabla_b_C = {}
         self.eta = eta
+        # init optimizer
+        self.method = method
+        self.w_mom = w_mom
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.gamma = gamma
+        self.delta_param = delta
+        # init v and moments for weights
+        self.vt_w = {}
+        self.vtmin1_w = {}
+        self.mt_w = {}
+        self.mtmin1_w = {}
+        self.G_w = {}
+        self.Gtmin1_w = {}
+        # init v and moments for bias
+        self.vt_b = {}
+        self.vtmin1_b = {}
+        self.mt_b = {}
+        self.mtmin1_b = {}
+        self.G_b = {}
+        self.Gtmin1_b = {}
 
     def info(self):
         print("nodes ", [(k,v) for k,v in self.nodes.items()])
@@ -122,15 +152,24 @@ class Neural_Network(object):
         l = self.layers
         self.nodes[l] = nodes
         self.afs[l] = af 
-        if af == 'sigmoid':
-            self.scale = np.sqrt(2/(self.a[0].shape[0] + self.target.shape[0]) )
-        else:
-            self.scale = np.sqrt(6/(self.a[0].shape[0] + self.target[0]) )
+        self.scale = 1
+        #if af == 'sigmoid':
+        #    self.scale = np.sqrt(2/(self.a[0].shape[0] + self.target.shape[0]) )
+        #else:
+        #    self.scale = np.sqrt(6/(self.a[0].shape[0] + self.target.shape[0]) )
+        print("Variance of init weihgts: ", self.scale)
         if weights is not None: self.weights[l] = weights
-        else: self.weights[l] = np.random.normal(0,1, size=(self.nodes[l-1], self.nodes[l] ) )
+        else: self.weights[l] = np.random.normal(0,self.scale, size=(self.nodes[l-1], self.nodes[l] ) )
         if bias is not None: self.bias[l] = bias
-        else: self.bias[l] = np.random.normal(0,1, size=(self.nodes[l],1) )
-   
+        else: self.bias[l] = np.zeros((self.nodes[l],1) ) + 0.1
+        # init weights and bias moments
+        self.mt_w[l] = np.zeros(self.weights[l].shape)
+        self.mt_b[l] = np.zeros(self.bias[l].shape)
+        self.vt_w[l] = np.zeros(self.weights[l].shape)
+        self.vt_b[l] = np.zeros(self.bias[l].shape)
+        self.G_w[l] = np.zeros((self.weights[l].shape[0], self.weights[l].shape[0]))
+        self.G_b[l] = np.zeros((self.bias[l].shape[1],self.bias[l].shape[1]))
+
     def output_layer(self, af, weights = None, bias = None):
         """
         Adds output layer to the NN for regression type problems where the output shape is equal to the input shape.
@@ -145,10 +184,17 @@ class Neural_Network(object):
         self.nodes[l] = self.nodes[0]
         self.afs[l] = af
         if weights is not None: self.weights[l] = weights
-        else: self.weights[l] = np.random.normal(0,1, size=(self.nodes[l-1], self.nodes[l] ) )
+        else: self.weights[l] = np.random.normal(0,self.scale, size=(self.nodes[l-1], self.nodes[l] ) )
         if bias is not None: self.bias[l] = bias
-        else: self.bias[l] = np.random.normal(0,1, size=(self.nodes[l], 1) ) 
-     
+        else: self.bias[l] = np.zeros( (self.nodes[l], 1) ) + 0.1
+        # init weights and bias moments
+        self.mt_w[l] = np.zeros(self.weights[l].shape)
+        self.mt_b[l] = np.zeros(self.bias[l].shape)
+        self.vt_w[l] = np.zeros(self.weights[l].shape)
+        self.vt_b[l] = np.zeros(self.bias[l].shape)
+        self.G_w[l] = np.zeros((self.weights[l].shape[0], self.weights[l].shape[0]))
+        self.G_b[l] = np.zeros((self.bias[l].shape[1],self.bias[l].shape[1]))
+
     def cost(self):
         """
         Computes the gradient of the cost function wrt
@@ -170,6 +216,10 @@ class Neural_Network(object):
     def grad_cost_specific(self):
         if self.costfunc == "ols":
             self.nabla_a_C = grad_ols
+        if self.costfunc == 'ridge':
+            self.nabla_a_C = grad_ridge
+        if self.costfunc == 'lasso':
+            self.nabla_a_C = grad_lasso
         if self.costfunc == "cross_entropy":
             self.nabla_a_C = grad_cross_entropy
         if self.costfunc == "cross_entropy_l2reg":
@@ -218,6 +268,8 @@ class Neural_Network(object):
             else:
                 gradient = self.nabla_a_C(self.target, self.a[self.layers], self.weights[self.layers], **kwargs)
             print("max gradient ", np.max(gradient))
+            #self.optimizer_bias = optimizer(X = X, y = y, cost_func = self.C, eta = self.eta, gamma = self.gamma, 
+            #                                beta1 = self.beta1, beta2 = self.beta2, w_mom = self.w_mom, theta_init = self.weights)
             sigma_prime_L = self.sigma_prime(self.afs[self.layers], self.z[self.layers])
             dL = np.multiply(gradient, sigma_prime_L )
         self.delta = {self.layers : dL }
@@ -236,13 +288,68 @@ class Neural_Network(object):
             self.nabla_b_C[idx] = np.sum(self.delta[idx], axis = 0, keepdims=True)
             self.nabla_w_C[idx] = self.a[idx-1].T @ self.delta[idx]
     
-    def update_weights(self, size_mini_batches):
-        for l in range(1, self.layers+1):
-            self.bias[l]    -= self.eta*self.nabla_b_C[l].T/size_mini_batches
-            self.weights[l] -= self.eta*self.nabla_w_C[l]/size_mini_batches
-    
-    
-    def SGD(self, epochs, size_mini_batches,tol=1e-6, printout = False, plot=False, **kwargs):
+    def update_weights(self, size_mini_batches, count = None):
+        for l in range(1,self.layers+1):
+            if self.method == 'sgd':
+                if self.w_mom:
+                    self.vtmin1_w[l] = self.vt_w[l].copy()
+                    self.vt_w[l] = self.gamma*self.vtmin1_w[l].copy() + self.eta*self.nabla_w_C[l].copy()
+                    self.vtmin1_b[l] = self.vt_b[l].copy()
+                    self.vt_b[l] = self.gamma*self.vtmin1_b[l].copy() + self.eta*self.nabla_b_C[l].copy().T
+                else:
+                    self.vt_w[l] = self.eta*self.nabla_w_C[l].copy()
+                    self.vt_b[l] = self.eta*self.nabla_b_C[l].copy().T
+            # rms prop and adam
+            if self.method in ['rms_prop', 'adam']:
+                self.Gtmin1_w[l] = self.G_w[l].copy()
+                self.Gtmin1_b[l] = self.G_b[l].copy()
+                self.G_w[l] = self.beta2*self.Gtmin1_w[l].copy() + (1-self.beta2)*self.nabla_w_C[l].copy() @ self.nabla_w_C[l].copy().T
+                self.G_b[l] = self.beta2*self.Gtmin1_b[l].copy() + (1-self.beta2)*self.nabla_b_C[l].copy() @ self.nabla_b_C[l].copy().T
+                if self.method == 'rms_prop':
+                    eta_t_w = np.c_[self.eta/(self.delta_param + np.sqrt( np.diagonal(self.G_w[l].copy() ) ))]
+                    eta_t_b = np.c_[self.eta/(self.delta_param + np.sqrt( np.diagonal(self.G_b[l].copy() ) ))]
+                    # with or without momentum
+                    if self.w_mom:
+                        self.vtmin1_w[l] = self.vt_w[l].copy()
+                        self.vtmin1_b[l] = self.vt_b[l].copy()
+                        self.vt_w[l] = self.gamma*self.vtmin1_w[l].copy() + np.multiply(eta_t_w,self.nabla_w_C[l].copy() )
+                        self.vt_b[l] = self.gamma*self.vtmin1_b[l].copy() + np.multiply(eta_t_b,self.nabla_b_C[l].copy() )
+                    else:
+                        self.vt_w[l] = np.multiply(eta_t_w,self.nabla_w_C[l].copy() )
+                        self.vt_b[l] = np.multiply(eta_t_b,self.nabla_b_C[l].copy() )
+                # specific for adam
+                if self.method == 'adam':
+                    self.mtmin1_w[l] = self.mt_w[l].copy()
+                    self.mt_w[l] = self.beta1*self.mtmin1_w[l].copy() + (1 - self.beta1)*self.nabla_w_C[l].copy()
+                    self.mtmin1_b[l] = self.mt_b[l].copy()
+                    self.mt_b[l] = self.beta1*self.mtmin1_b[l].copy() + (1 - self.beta1)*self.nabla_b_C[l].copy()
+                    # update first bias corrected momentum
+                    mthat_w = self.mt_w[l].copy()/(1 - self.beta1**count)
+                    mthat_b = self.mt_b[l].copy()/(1 - self.beta1**count)
+                    # update acumulated outer prod of gradients
+                    Ghat_w  = self.G_w[l].copy() /(1 - self.beta2**count)
+                    Ghat_b  = self.G_b[l].copy() /(1 - self.beta2**count)
+                    # update adaptive learning rate
+                    eta_t_w = np.c_[self.eta/(self.delta_param + np.sqrt( np.diagonal(Ghat_w.copy() ) ))]
+                    eta_t_b = np.c_[self.eta/(self.delta_param + np.sqrt( np.diagonal(Ghat_b.copy() ) ))]
+                    # update second bias corrected momentum 
+                    self.vt_w[l] = eta_t_w.copy() * mthat_w.copy()
+                    self.vt_b[l] = eta_t_b.copy() * mthat_b.copy()
+                    del mthat_w
+                    del mthat_b
+                    del Ghat_w
+                    del Ghat_b
+                del eta_t_w
+                del eta_t_b
+            # update
+            #print(self.vt_b[l].copy().shape)
+            #print(self.bias[l].shape)
+            #assert False
+            self.bias[l]    -= np.sum(self.vt_b[l].copy(), axis = 1, keepdims=True)
+            self.weights[l] -= self.vt_w[l].copy()
+
+
+    def SGD(self, epochs, size_mini_batches,tol=1e-4, printout = False, plot=False, store_grads = False, store_activation_output = False, **kwargs):
         """
         Stochastic gradient descent for optimizin the weights and biases in the NN.
         Tip: choose number of minibatches s.t. the lenth of each batch is a power of 2.
@@ -256,12 +363,24 @@ class Neural_Network(object):
         nsamples = self.Ydata_full.shape[0]
         mini_batches = nsamples//size_mini_batches
         print(" # mini batches", mini_batches)
-        losses = np.zeros(epochs)
+        self.r2 = np.zeros(epochs)
+        self.mse = np.zeros(epochs)
+        self.losses = np.zeros(epochs)
+        self.l2norm_gradC_weights = np.ones(epochs)*np.nan
+        # storing norm of gradients for analysing convergence
+        if store_grads:
+            self.grads = {}
+            self.grads[0] = self.nabla_w_C.copy()
+        # storing activation output for each layer at each iteration
+        if store_activation_output:
+            self.activation_output = {}
+            self.activation_output[0] = self.a.copy()
         for nepoch in range(epochs):
             bias_old = self.bias[self.layers].copy()
             weights_old = self.weights[self.layers].copy()
             for m in range(mini_batches):
-                ind_batch = np.random.randint(nsamples-mini_batches)
+                count = nepoch*mini_batches + m + 1
+                ind_batch = np.random.randint(nsamples - size_mini_batches)
                 binds = divide_batches(X = self.Xdata_full, nmb = mini_batches, istart = ind_batch)    
                 # set the first activation output and target to the batch samples 
                 self.a[0] = self.Xdata_full[binds].copy()
@@ -271,24 +390,34 @@ class Neural_Network(object):
                 # do backprop on the batch
                 self.backpropagation(**kwargs)
                 # update weights and biases
-                #print("Before update: \n", self.weights)
-                self.update_weights(size_mini_batches)
-                #print("After update: \n", self.weights)
+                self.update_weights(size_mini_batches, count)
+                # store weights and activation output for anlaysis
+                if store_grads:
+                    self.grads[count] = self.nabla_w_C.copy()
+                if store_activation_output:
+                    self.activation_output[count] = self.a.copy()
                 # compute loss to indicate performance wrt epoch number
-                if self.costfunc == 'ols' or self.costfunc == 'cross_entropy':
+                if self.costfunc in ['ols','cross_entropy']:
                     loss = self.C(self.target, self.a[self.layers], **kwargs)
                 else:
                     loss = self.C(self.target, self.a[self.layers], self.weights[self.layers], **kwargs)
-                losses[nepoch] += loss
+                # storing various metrics
+                self.losses[nepoch] += loss
+                self.r2[nepoch] += 1 - np.sum(np.sum((self.target - self.a[self.layers])**2, axis=0) / np.sum( (self.target - np.sum(self.target, axis=0)/self.target[0])**2 ) )#R2score(self.target, self.a[self.layers])
+                self.mse[nepoch] += cost_ols(self.target, self.a[self.layers], **kwargs)
+                self.l2norm_gradC_weights[nepoch] = np.sqrt(np.sum((self.nabla_w_C[self.layers])**2))
+                if nepoch > 0 and self.l2norm_gradC_weights[nepoch] <=tol: self.bconv = True; break 
                 # print information
                 if printout:
                     print("max of activation output: ", np.max(self.a[self.layers-1]))
                     print("Epoch {0}/{1}, batch {2}/{3}, loss: 1e{4:.4f}".format(nepoch+1,epochs,m+1,mini_batches, np.log10(np.mean(loss))) )
-            print("Max delta weights: ", np.max(self.weights[self.layers] - weights_old))
-            print("Max delta bias: ", np.max(self.bias[self.layers] - bias_old))
-            if np.max(np.abs(self.weights[self.layers]-weights_old)) <=tol: break 
+                    print("Max delta weights: ", np.max(self.weights[self.layers] - weights_old))
+                    print("Max delta bias: ", np.max(self.bias[self.layers] - bias_old))
+            if printout:
+                print("Epoch {0}/{1}, l2-norm grad C_weights: 1e{2:.4f}".format(nepoch+1,epochs, np.log10(np.mean(self.l2norm_gradC_weights))) )
+            #if nepoch > 0 and np.abs(self.losses[nepoch]-self.losses[nepoch-1]) <=tol: self.bconv = True; break 
         if plot:
-            plt.plot(np.arange(epochs) + 1, losses/mini_batches)
+            plt.plot(np.arange(epochs) + 1, self.losses)
             plt.xlabel("Epochs")
             plt.ylabel("$C(\\theta)$")
             plt.show()

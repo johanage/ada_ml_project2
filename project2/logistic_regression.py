@@ -102,10 +102,11 @@ for i in range(len(etas)):
         # setting up the logistic regression which is the same as 
         # a single layer perceptron with the sigmoid function as the activation function
         nn = Neural_Network(X_train,  y_train, costfunc = 'cross_entropy_l2reg', eta=eta, symbolic_differentiation = True)
-        nn.add_layer(nodes = 2, af = 'sigmoid')
+        # using 2 nodes just because the data is transormed into onehot vectors
+        nn.add_layer(nodes = 2, af = 'sigmoid', bias = np.zeros((2,1)) )
         nn.feed_forward()
 
-        # do SGD
+        # using SGD for optimization
         nn.SGD(epochs = epochs, size_mini_batches = batch_size, tol=tol,plot = False, printout=True,**{'lambda' : lamda})
 
         # set data to test data and predict using weights computed with SGD

@@ -53,33 +53,24 @@ n_inputs, n_features = X_train.shape
 n_hidden_neurons = 50
 n_categories = 10
 
-# we make the weights normally distributed using numpy.random.randn
-# weights and bias in the hidden layer
-hidden_weights = np.random.randn(n_features, n_hidden_neurons)
-hidden_bias = np.zeros(n_hidden_neurons) + 0.01
-
-# weights and bias in the output layer
-output_weights = np.random.randn(n_hidden_neurons, n_categories)
-output_bias = np.zeros(n_categories) + 0.01
-
 #Y_train_onehot, Y_test_onehot = to_categorical(Y_train), to_categorical(Y_test)
 Y_train_onehot, Y_test_onehot = to_categorical_numpy(Y_train), to_categorical_numpy(Y_test)
 print("input training target: ", Y_train_onehot)
 
 # init and add layers to the NN
-nn = Neural_Network(X_train,  Y_train_onehot, costfunc = 'cross_entropy', eta=1e-1)
-nn.add_layer(nodes = n_hidden_neurons, af = 'sigmoid', weights = hidden_weights, bias = hidden_bias[:,np.newaxis])
-nn.add_layer(nodes = n_categories,     af = 'softmax', weights = output_weights, bias = output_bias[:,np.newaxis])
+nn = Neural_Network(X_train,  Y_train_onehot, costfunc = 'cross_entropy', eta=1e-2, w_mom = True, method = 'sgd', symbolic_differentiation = False)
+nn.add_layer(nodes = n_hidden_neurons, af = 'sigmoid')
+nn.add_layer(nodes = n_categories,     af = 'softmax')
 nn.feed_forward()
 
 # do SGD
 # epochs, mini batches
-nn.SGD(400, 16,  **{'lambda' : 1e-3}, plot=True)
+nn.SGD(100, 16,  **{'lambda' : 1e-3}, plot=True, store_grads = False, store_activation_output = False)
 # set data to original and predict using weights computed with SGD
-nn.target = Y_test_onehot
-nn.a[0] = X_test
-nn.feed_forward()
+aL_test = nn.predict(X_test)
+p2b = probs_to_binary(probabilities = aL_test)
+acc = accuracy(y = Y_test_onehot, a = p2b)
+print("Accuracy: ", acc)
 
-p2b = probs_to_binary(probabilities = nn.a[nn.layers])
-acc = accuracy(y = nn.target, a = p2b)
-print(acc)
+print(aL_test[:10])
+print(Y_test[:10])

@@ -29,7 +29,7 @@ and make a class of optimizers.
 """
 
 class optimizers:
-    def __init__(self, X, y, cost_func, eta, gamma = 1e-3, delta = 1e-8, beta1 = 1e-3, beta2 = 1e-3, idx_deriv=2, theta_init = None, 
+    def __init__(self, X, y, cost_func, eta, gamma = 0.9, delta = 1e-8, beta1 = 0.9, beta2 = 0.99, idx_deriv=2, theta_init = None, 
                  check_conv = False, tol=1e-8, store_thetas = False, max_iter=int(1e4), batch_pick = None, w_mom = False, **kwargs):
         self.max_iter = max_iter
         self.tol = tol
@@ -52,7 +52,10 @@ class optimizers:
         self.bconv = False
         # init gradient function from autograd
         self.train_grad = grad(cost_func, idx_deriv)
-        self.theta = np.random.normal(size=(X.shape[1], 1))
+        if theta_init is None:
+            self.theta = np.random.normal(size=(X.shape[1], 1))
+        else:
+            self.theta = theta_init
         # init first and second moment respectively
         self.mt = np.zeros(self.theta.shape)
         self.vt = np.zeros(self.theta.shape)
@@ -66,13 +69,13 @@ class optimizers:
 
     def __call__(self, method, epochs = None, size_mini_batches = None, 
                  w_mom = False, verbose = False, store_mse = False, **kwargs):
-        if method not in ['grad_desc', 'grad_desc_mom', 'ADAgrad_gd']:
+        if method not in ['grad_desc', 'grad_desc_mom', 'adagrad']:
             assert epochs is not None, ("Have to assign epochs for stochastic methods")
             assert size_mini_batches is not None, ("Have to assign size of batches for stochastic methods")
             # number of mini batche# number of mini batches
             nmb = self.nsamples//size_mini_batches
             if store_mse:
-                self.mse = np.zeros((epochs, nmb))
+                self.mse = np.ones((epochs, nmb))*np.nan
             for iepoch in range(epochs): # iterating over nr of epochs
                 for imb in range(nmb): # iterating over mini batches
                     count = iepoch*nmb + imb + 1
@@ -100,17 +103,24 @@ class optimizers:
                     if self.bconv: break
                 if self.bconv: break
         else:
+            if store_mse:
+                self.mse = np.ones((self.max_iter))*np.nan
             for i in range(self.max_iter):
                 theta_old = self.theta.copy()
                 gradients = self.train_grad(self.X_data_full, self.Y_data_full, self.theta, **kwargs)
                 if method == 'grad_desc': 
                     self.grad_desc(gradients)
                 if method == 'grad_desc_mom': 
-                    self.grad_desc(gradients)
+                    self.grad_desc_mom(gradients)
                 if method == 'adagrad':
                     self.ADAgrad(gradients)
+                if store_mse: self.mse[i] = cost_OLS(self.X_data_full,self.Y_data_full, self.theta)
                 self.bconv = self.check_conv(theta_old)
                 if self.bconv: break
+                if verbose:
+                    print("Iteration {0}/{1}".format(i+1,max_iter ))
+                    print("Max delta theta: ", np.max(self.theta - theta_old))
+
     def grad_desc(self, gradients, **kwargs):
         self.theta -= self.eta*gradients
         
@@ -145,7 +155,7 @@ class optimizers:
 
     def ADAgrad(self,gradients, **kwargs):
         self.G += gradients @ gradients.T
-        eta_t = (np.c_[self.eta/(self.delta + np.sqrt( np.diagonal(self.G) ))])
+        eta_t = np.c_[self.eta/(self.delta + np.sqrt( np.diagonal(self.G) ))]
         if self.w_mom:
             assert self.gamma is not None, ("To run with momentum we need gamma parameter")
             self.vtmin1 = self.vt.copy()
@@ -160,7 +170,7 @@ class optimizers:
         # compute new acum outer prod gradas
         self.G = self.beta2*self.G_old + (1-self.beta2)*gradients @ gradients.T
         # update learning parameter
-        eta_t = (np.c_[self.eta/(self.delta + np.sqrt( np.diagonal(self.G) ))])
+        eta_t = np.c_[self.eta/(self.delta + np.sqrt( np.diagonal(self.G) ))]
         if self.w_mom:
             assert self.gamma is not None, ("To run with momentum we need gamma parameter")
             self.vtmin1 = self.vt.copy()
@@ -184,6 +194,6 @@ class optimizers:
         # update bias corrected second moment
         Ghat = self.G/( 1 - self.beta2**count)
         # update learning parameter
-        eta_t = (np.c_[self.eta/(self.delta + np.sqrt( np.diagonal(Ghat) ))])
+        eta_t = np.c_[self.eta/(self.delta + np.sqrt( np.diagonal(Ghat) ))]
         # update theta
         self.theta -= eta_t*mthat

@@ -43,10 +43,10 @@ plot_heatmap(etas,lambdas,mses_skl, title = 'MSE SGD sklearn', store = True,
 labels = {'sgd' : 'SGD', 'rms_prop' : 'RMS propagation', 'adagrad' : 'Adagrad', 'adam' : 'ADAM'}
 methods = ['sgd', 'rms_prop','adagrad', 'adam']
 gamma = 1e-3
-beta1 = 1e-2
-beta2 = 1e-4
-plot_lines = False
-for method in methods:
+beta1 = 0.9
+beta2 = 0.99
+plot_lines = True
+for method in ['adam']:#methods:
     mses = np.zeros((len(lambdas),len(etas)))
     for j in range(len(etas)):
         for i in range(len(lambdas)):

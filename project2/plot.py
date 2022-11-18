@@ -29,7 +29,7 @@ def plot_breast_scatter(x, y):
     plt.show()
 
 
-def plot_heatmap(x,y,data,show = True, title=None, store = True, store_dir = None,
+def plot_heatmap(x,y,data,show = True, title=None, store = True, type_axis = 'float', store_dir = None,
                  xlabel = None, ylabel = None, cbar_label = None, vmin=0, vmax = 1):
 
     # plot results
@@ -55,10 +55,15 @@ def plot_heatmap(x,y,data,show = True, title=None, store = True, store_dir = Non
             ax.text(x_val, y_val, c, va='center', ha='center')
 
     # convert axis vaues to to string labels
-    x=["1e{0:.2}".format(np.log10(i)) for i in x]
-    y=["1e{0:.2}".format(np.log10(i)) for i in y]
-
-
+    if type_axis == 'log':
+        x=["1e{0:.2}".format(np.log10(i)) for i in x]
+        y=["1e{0:.2}".format(np.log10(i)) for i in y]
+    if type_axis == 'int':
+        x=["%i"%(i) for i in x]
+        y=["%i"%(i) for i in y]
+    if type_axis == 'float':
+        x=["{0:.2}".format(i) for i in x]
+        y=["{0:.2}".format(i) for i in y]
     ax.set_xticklabels(['']+x)
     ax.set_yticklabels(['']+y)
     if xlabel is None:
@@ -79,3 +84,24 @@ def plot_heatmap(x,y,data,show = True, title=None, store = True, store_dir = Non
             fig.savefig(os.getcwd() + "/plots/neurons_eta_heatmap_breast_" + title + ".png", dpi=150)
         else:
             fig.savefig(store_dir + title + ".png", dpi=150)
+
+def plot_norm_gradient(norms_gradient, fig, ax, label, ylabel, xlabel='Epoch', store = False, store_dir = None):
+    ax.plot(np.arange(norms_gradient) + 1, norms_gradient, label = label)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.legend()
+    if store:
+        fig.savefig(store_dir + ".png", dpi=150)
+
+
+def plot_activation_functions(af, x, fig, ax):
+    if af == 'sigmoid':
+        y = 1/(1 + np.exp(-x))
+    if af == 'tanh':
+        y = np.tanh(x)
+    if af == 'leaky_relu':
+        y = .5*( (1 - np.sign(x))*1e-2*x + (1 + np.sign(x))*x)
+    if af == 'relu':
+        y = np.maximum(x, 0)
+    ax.plot(x, y, label=af)
+    return fig, ax
