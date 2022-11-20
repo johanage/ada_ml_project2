@@ -24,7 +24,7 @@ X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size = 0.1, rando
 eta= 1e-1                    #Define vector of learning rates (parameter to SGD optimiser)
 lmbda =1e-5                                  #Define hyperparameter
 n_hidden_neurons = 10
-epochs= 200                                 #Number of reiterations over the input data
+epochs= 50                                 #Number of reiterations over the input data
 batch_size= 10                              #Number of samples per gradient update
 
 # %%

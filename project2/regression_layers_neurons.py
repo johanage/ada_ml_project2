@@ -12,7 +12,7 @@ from project1 import R2score, MSE
 np.random.seed(3155)
 
 # gernerate the simple 2deg poly
-x = np.linspace(-1,1,500)
+x = np.linspace(-1,1,5000)
 y = test_func_poly_deg_p(deg = 2, avec = [0,1,1], x = x)
 ynoisy = y + np.random.normal(0,.1,size=y.shape)
 #x = (x - np.mean(x))/np.std(x) # pre-processing of input

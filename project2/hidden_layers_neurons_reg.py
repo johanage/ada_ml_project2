@@ -27,13 +27,13 @@ n_hidden_neurons = [[(1,), (1,1), (1,1,1)],
                     [(40,), (40,40), (40,40,40)]]
                     
 # default value of size of mini batch for SGD in sklearn is min(200, nsamples)
-epochs = 500
+epochs = 50
 batch_size = 5
 beta1 = 0.9
 beta2 = 0.99
 gamma = 0.9
 method = 'sgd'
-for net in [n_hidden_neurons[-2]]:
+for net in n_hidden_neurons:
     print(net)
     fig, axs = plt.subplots(1,3,figsize=(15,5))
     fig.suptitle("Number of layers and neurons $\\lambda = 10^{%.2f}, \\eta = 10{%.2f}$"%(np.log10(lmbda),np.log10(eta) ) )
@@ -53,8 +53,9 @@ for net in [n_hidden_neurons[-2]]:
         # do SGD
         # epochs, mini batches
         nn.SGD(epochs, batch_size, printout = True, plot = False, **{'lambda' : lmbda})
-        axs[1].plot(np.arange(len(nn.losses)), nn.losses, label = 'FFNN loss layers: ' + str(layers))
-        axs[2].plot(np.arange(len(nn.l2norm_weights)) + 1, nn.l2norm_weights, label = 'FFNN layers: ' + str(layers))
+        axs[1].plot(np.arange(len(nn.losses)), nn.losses, label = 'FFNN train loss layers: ' + str(layers))
+        axs[1].plot(np.arange(len(nn.losses_dev)), nn.losses_dev, label = 'FFNN dev loss layers: ' + str(layers))
+        axs[2].plot(np.arange(len(nn.l2norm_gradC_weights)) + 1, nn.l2norm_gradC_weights, label = 'FFNN layers: ' + str(layers))
         # plot for comparison
         axs[0].plot(x, nn.predict(X_train), label='Pred NN layers: ' + str(layers) , marker = 'o', alpha = 0.5)
         axs[0].plot(x, dnn.predict(X_train), label='sklearn MLPRegressor layers: ' + str(layers) )

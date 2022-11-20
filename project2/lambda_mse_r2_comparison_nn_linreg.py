@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split
-from project1 import MSE, R2score
+from metrics import MSE, R2score
 
 np.random.seed(3155)
 
@@ -19,7 +19,7 @@ x = (x - np.mean(x))/np.std(x) # pre-processing of input
 X = x[:,np.newaxis]
 Y = y[:,np.newaxis]
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size = 0.2, random_state = 3155)
-print("shapes of xtrain, xtest, ytrain, ytest", X_train.shape, X_test, shape, Y_train.shape, Y_test.shape)
+print("shapes of xtrain, xtest, ytrain, ytest", X_train.shape, X_test.shape, Y_train.shape, Y_test.shape)
 # params common for NN and linear regression methods
 lmbda  = 1e-3
 
@@ -38,9 +38,10 @@ print(f"Eigenvalues of Hessian Matrix:{EigValues}")
 
 # hyperparameters of the FFNN
 eta = 1e-1
-n_hidden_neurons = 10
+n_hidden_neurons = 30
+n_layers = 1
 # default value of size of mini batch for SGD in sklearn is min(200, nsamples)
-epochs = 100
+epochs = 50
 batch_size = 5
 beta1 = 0.9
 beta2 = 0.99
@@ -63,13 +64,14 @@ R2_ridge = np.zeros(len(lambdas))
 i = 0
 for lmbda in lambdas:
     # Sklearn MLP Reg
-    dnn = MLPRegressor(hidden_layer_sizes=(n_hidden_neurons), activation='logistic', solver = method, momentum = 0.9,
+    dnn = MLPRegressor(hidden_layer_sizes=tuple([n_hidden_neurons]*n_layers), activation='logistic', solver = method, momentum = 0.9,
                        alpha=lmbda, beta_1 = beta1, beta_2 = beta2, learning_rate = 'constant', learning_rate_init=eta, max_iter=epochs, batch_size = batch_size)
     dnn.fit(X_train, Y_train)
     # implemented FFNN
     nn = Neural_Network(X_train,  Y_train, costfunc = 'ridge', eta=eta, gamma = gamma, beta1 = beta1, beta2 = beta2, 
                         w_mom = w_mom, method = method, symbolic_differentiation = False)
-    nn.add_layer(nodes = n_hidden_neurons, af = 'sigmoid')# weights = np.random.normal(0,.1,size = (X_train.shape[1], n_hidden_neurons) ) )
+    for i in range(n_layers):
+        nn.add_layer(nodes = n_hidden_neurons, af = 'sigmoid')# weights = np.random.normal(0,.1,size = (X_train.shape[1], n_hidden_neurons) ) )
     nn.output_layer(af = 'linear')# weights = np.random.normal(0,.1,size = (n_hidden_neurons, X_train.shape[1]) ))
     # sgd
     nn.SGD(epochs, batch_size, printout = True, plot = False, **{'lambda' : lmbda})
@@ -82,16 +84,25 @@ for lmbda in lambdas:
     R2_ridge[i] = R2score(Y_test, ypred_ridge)
  
     i+=1
-axs[0].plot(lambdas,mse_ridge/np.max(mse_ridge), label = 'MSE Ridge linreg', color = 'm', marker = 'd', ms = 3, alpha = 0.5 )
-axs[0].plot(lambdas,mse_nn/np.max(mse_nn), label = 'MSE NN', color = 'c', marker = 'd', ms = 3, alpha = 0.5 )
-axs[0].plot(lambdas,mse_sl/np.max(mse_sl), label = 'MSE SL MLP Reg', color = 'y', marker = '^', ms = 3, alpha = 0.5 )
-axs[1].plot(lambdas,R2_ridge/np.max(R2_ridge), label = '$R^2$-score Ridge linreg', color = 'm', marker = 'd', ms = 3, alpha = 0.5 )
-axs[1].plot(lambdas,R2_nn/np.max(R2_nn), label = '$R^2$-score NN', color = 'c', marker = 'd', ms = 3, alpha = 0.5 )
-axs[1].plot(lambdas,R2_sl/np.max(R2_sl), label = '$R^2$-score SL MLP Reg', color = 'y', marker = '^', ms = 3, alpha = 0.5 )
+axs[0].plot(lambdas,mse_ridge,#/np.max(mse_ridge), 
+            label = 'MSE Ridge linreg', color = 'm', marker = 'd', ms = 3, alpha = 0.5 )
+axs[0].plot(lambdas,mse_nn,#/np.max(mse_nn), 
+            label = 'MSE NN', color = 'c', marker = 'd', ms = 3, alpha = 0.5 )
+axs[0].plot(lambdas,mse_sl,#/np.max(mse_sl), 
+            label = 'MSE SL MLP Reg', color = 'y', marker = '^', ms = 3, alpha = 0.5 )
+axs[1].plot(lambdas,R2_ridge,#/np.max(R2_ridge), 
+            label = '$R^2$-score Ridge linreg', color = 'm', marker = 'd', ms = 3, alpha = 0.5 )
+axs[1].plot(lambdas,R2_nn,#/np.max(R2_nn), 
+            label = '$R^2$-score NN', color = 'c', marker = 'd', ms = 3, alpha = 0.5 )
+axs[1].plot(lambdas,R2_sl,#/np.max(R2_sl), 
+            label = '$R^2$-score SL MLP Reg', color = 'y', marker = '^', ms = 3, alpha = 0.5 )
 [ax.set_xlabel("$\\lambda$") for ax in axs]
+#[ax.set_yscale('log') for ax in axs]
+[ax.set_ylim(-1,1) for ax in axs]
+[ax.set_xscale('log') for ax in axs]
 axs[0].set_ylabel("MSE")
-axs[0].set_ylabel("$R^2$-score")
+axs[1].set_ylabel("$R^2$-score")
 [ax.legend() for ax in axs]
-
+fig.tight_layout()
 # save figure
 fig.savefig(os.getcwd() + "/plots/prob_b/simple_comparison_linreg_ffnn.png", dpi = 150)

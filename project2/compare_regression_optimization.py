@@ -59,7 +59,7 @@ if simple_plot:
     plt.show()
     assert False
 # optimizers
-etas = np.logspace(-4,-1, 4)
+etas = np.logspace(-3,-1, 4)
 lambdas = np.logspace(-5,1,7)
 print("etas: ", etas, "lambdas : ", lambdas)
 mses_ridge = np.zeros((len(lambdas)))
@@ -71,9 +71,9 @@ epochs = 100
 n_mini_batches = 10
 size_mini_batches = n//n_mini_batches
 max_iter = epochs * n_mini_batches
-beta1 = 1e-2
-beta2 = 1e-4
-gamma = 1e-3
+beta1 = 0.9
+beta2 = 0.99
+gamma = 0.9
 cmap_method = plt.cm.coolwarm( np.linspace(0,1,len(lambdas)*len(etas)).reshape(len(lambdas), len(etas))  )
 for method in list(labels.keys()):
     # plot ridge vs lambda
@@ -85,8 +85,8 @@ for method in list(labels.keys()):
         Id = n*lambdas[j]* np.eye(XT_X.shape[0])
         beta_ridge = np.linalg.inv(XT_X+Id) @ X.T @ y
         ypredict_ridge = X @ beta_ridge
-        axs[1].plot(x, ypredict_ridge, "b-",lw=2, label="Ridge $ \\lambda = 10^{%.2f}$"%(np.log10(lambdas[j])))
         mses_ridge[j] = MSE(y, ypredict_ridge)
+        axs[1].plot(x, ypredict_ridge, "b-",lw=2, label="Ridge $ \\lambda = 10^{%.2f}$"%(np.log10(lambdas[j])))
         for i in range(len(etas)):
             optimizer= optimizers(X, y, cost_Ridge, eta = etas[i], gamma = gamma, beta1 = beta1, beta2 = beta2, w_mom = True, verbose=True)
             optimizer(method = method, epochs = epochs, size_mini_batches = size_mini_batches, **{'lambda' : lambdas[j], 'scheme': 'linear', 't0' : 1e-1, 't1' : 1e-2})
@@ -96,13 +96,15 @@ for method in list(labels.keys()):
     
     
     axs[0].plot(lambdas,mses_ridge, label='Ridge MSE')
+    [axs[0].plot(lambdas,mses_optim[i], label='Optim MSE $\\eta = 10^{%.2f}$'%(np.log10(etas[i]))) for i in range(len(etas))]
+    axs[0].set_xscale('log')
+    axs[0].legend()
     axs[1].plot(x, ypredict, "r-", lw=2, label="GD")
     axs[1].plot(x, ypredict_ols, "C2-",lw=2, label="OLS")
     axs[1].plot(x, y ,lw=5, color = 'k', alpha = 0.5)
     axs[1].set_xlabel(r'$x$')
     axs[1].set_ylabel(r'$y$')
     fig.suptitle(r'Optimization methods and linear regression for Ridge cost')
-    axs[0].legend()
     lgd = axs[1].legend(bbox_to_anchor = (1,1,0.,0.5), ncols = 2)
     #axs[1].show()
     fig.tight_layout()

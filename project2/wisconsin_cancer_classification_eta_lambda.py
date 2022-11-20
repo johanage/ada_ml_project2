@@ -68,7 +68,7 @@ print("X_train shape: ", X_train.shape, "y_train shape: ", y_train.shape)
 eta= np.logspace(-3,-1,3)                   #Define vector of learning rates (parameter to SGD optimiser)
 lambdas=np.array( [0] + list(np.logspace(-5,-1,3)))                   #Define vector of learning rates (parameter to SGD optimiser)
 n_neurons = 1
-n_hidden_layers = 1
+n_hidden_layers = 2
 epochs= 100                               #Number of reiterations over the input data
 batch_size=8                               #Number of samples per gradient update
 

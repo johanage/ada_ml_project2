@@ -104,7 +104,6 @@ for i in range(len(etas)):
         nn = Neural_Network(X_train,  y_train, costfunc = 'cross_entropy_l2reg', eta=eta, symbolic_differentiation = True)
         # using 2 nodes just because the data is transormed into onehot vectors
         nn.add_layer(nodes = 2, af = 'sigmoid', bias = np.zeros((2,1)) )
-        nn.feed_forward()
 
         # using SGD for optimization
         nn.SGD(epochs = epochs, size_mini_batches = batch_size, tol=tol,plot = False, printout=True,**{'lambda' : lamda})

@@ -8,6 +8,7 @@ from optimization import divide_batches
 import matplotlib.pyplot as plt
 from optimization import *
 from project1 import R2score
+from sklearn.model_selection import train_test_split
 
 # defining the cost functions so that they work with autograd
 # and can be optimized wrt the output activations
@@ -73,7 +74,7 @@ def accuracy(y, a):
 
 
 class Neural_Network(object):
-    def __init__(self, X, y, costfunc, eta, symbolic_differentiation = False,
+    def __init__(self, X, y, costfunc, eta, symbolic_differentiation = False, devsize = 0.1, rs = 3155,
                  method = 'sgd', w_mom = False, beta1 = 0.9, beta2 = 0.99, gamma = 0.9, delta = 1e-8):
         """
         The initialization of the NN.
@@ -85,11 +86,14 @@ class Neural_Network(object):
         eta - float, learning rate
         specify_grad - bool, compute the gradient of the cost function from symbolic differentition
         """
+        X, X_dev, y, y_dev = train_test_split(X, y, test_size = devsize, random_state = rs)
         self.target = y
         self.Xdata_full = X
         self.Ydata_full = y
+        self.Xdata_dev = X_dev
+        self.Ydata_dev = y_dev
         self.layers = 0
-        self.nodes = {0 : X.shape[1]}
+        self.nodes = {0 : self.Xdata_full.shape[1]}
         self.afs = {}
         # set costfunc
         self.costfunc = costfunc
@@ -349,7 +353,8 @@ class Neural_Network(object):
             self.weights[l] -= self.vt_w[l].copy()
 
 
-    def SGD(self, epochs, size_mini_batches,tol=1e-4, printout = False, plot=False, store_grads = False, store_activation_output = False, **kwargs):
+    def SGD(self, epochs, size_mini_batches,tol=1e-4, printout = False, plot=False, 
+            store_grads = False, store_activation_output = False, batchnorm = False, **kwargs):
         """
         Stochastic gradient descent for optimizin the weights and biases in the NN.
         Tip: choose number of minibatches s.t. the lenth of each batch is a power of 2.
@@ -366,6 +371,7 @@ class Neural_Network(object):
         self.r2 = np.zeros(epochs)
         self.mse = np.zeros(epochs)
         self.losses = np.zeros(epochs)
+        self.losses_dev = np.zeros(epochs)
         self.l2norm_gradC_weights = np.ones(epochs)*np.nan
         # storing norm of gradients for analysing convergence
         if store_grads:
@@ -381,9 +387,14 @@ class Neural_Network(object):
             for m in range(mini_batches):
                 count = nepoch*mini_batches + m + 1
                 ind_batch = np.random.randint(nsamples - size_mini_batches)
-                binds = divide_batches(X = self.Xdata_full, nmb = mini_batches, istart = ind_batch)    
+                binds = divide_batches(X = self.Xdata_full, nmb = mini_batches, istart = ind_batch)
+                # bactch normalization
+                if batchnorm:
+                    data = (self.Xdata_full[binds].copy() - np.sum(self.Xdata_full[binds].copy(), axis = 0)/len(binds))/np.std(self.Xdata_full[binds].copy(), axis = 0)
+                else: 
+                    data = self.Xdata_full[binds].copy()
                 # set the first activation output and target to the batch samples 
-                self.a[0] = self.Xdata_full[binds].copy()
+                self.a[0] = data.copy() 
                 self.target = self.Ydata_full[binds].copy()
                 # do feed forward on the batch
                 self.feed_forward()
@@ -396,26 +407,27 @@ class Neural_Network(object):
                     self.grads[count] = self.nabla_w_C.copy()
                 if store_activation_output:
                     self.activation_output[count] = self.a.copy()
-                # compute loss to indicate performance wrt epoch number
-                if self.costfunc in ['ols','cross_entropy']:
-                    loss = self.C(self.target, self.a[self.layers], **kwargs)
-                else:
-                    loss = self.C(self.target, self.a[self.layers], self.weights[self.layers], **kwargs)
-                # storing various metrics
-                self.losses[nepoch] += loss
-                self.r2[nepoch] += 1 - np.sum(np.sum((self.target - self.a[self.layers])**2, axis=0) / np.sum( (self.target - np.sum(self.target, axis=0)/self.target[0])**2 ) )#R2score(self.target, self.a[self.layers])
-                self.mse[nepoch] += cost_ols(self.target, self.a[self.layers], **kwargs)
-                self.l2norm_gradC_weights[nepoch] = np.sqrt(np.sum((self.nabla_w_C[self.layers])**2))
-                if nepoch > 0 and self.l2norm_gradC_weights[nepoch] <=tol: self.bconv = True; break 
                 # print information
                 if printout:
                     print("max of activation output: ", np.max(self.a[self.layers-1]))
-                    print("Epoch {0}/{1}, batch {2}/{3}, loss: 1e{4:.4f}".format(nepoch+1,epochs,m+1,mini_batches, np.log10(np.mean(loss))) )
+                    print("Epoch {0}/{1}, batch {2}/{3}, loss: 1e{4:.4f}".format(nepoch+1,epochs,m+1,mini_batches, np.log10(np.mean(self.losses))) )
                     print("Max delta weights: ", np.max(self.weights[self.layers] - weights_old))
                     print("Max delta bias: ", np.max(self.bias[self.layers] - bias_old))
+            # compute loss to indicate performance wrt epoch number
+            if self.costfunc in ['ols','cross_entropy']:
+                loss = self.C(self.Ydata_full, self.predict(self.Xdata_full), **kwargs)
+                loss_dev = self.C(self.Ydata_dev, self.predict(self.Xdata_dev), **kwargs)
+            else:
+                loss = self.C(self.Ydata_full, self.predict(self.Xdata_full), self.weights[self.layers], **kwargs)
+                loss_dev = self.C(self.Ydata_dev, self.predict(self.Xdata_dev), self.weights[self.layers], **kwargs)
+            self.losses[nepoch] = loss
+            self.losses_dev[nepoch] = loss_dev
+            self.r2[nepoch] = 1 - np.sum(np.sum((self.Ydata_full - self.predict(self.Xdata_full))**2, axis=0) / np.sum( (self.Ydata_full - np.sum(self.Ydata_full, axis=0)/self.target[0])**2 ) )#R2score(self.target, self.a[self.layers])
+            self.mse[nepoch] = cost_ols(self.Ydata_full, self.predict(self.Xdata_full), **kwargs)
+            self.l2norm_gradC_weights[nepoch] = np.sqrt(np.sum((self.nabla_w_C[self.layers])**2))
+            if nepoch > 0 and self.l2norm_gradC_weights[nepoch] <=tol: self.bconv = True; break 
             if printout:
                 print("Epoch {0}/{1}, l2-norm grad C_weights: 1e{2:.4f}".format(nepoch+1,epochs, np.log10(np.mean(self.l2norm_gradC_weights))) )
-            #if nepoch > 0 and np.abs(self.losses[nepoch]-self.losses[nepoch-1]) <=tol: self.bconv = True; break 
         if plot:
             plt.plot(np.arange(epochs) + 1, self.losses)
             plt.xlabel("Epochs")
@@ -436,7 +448,7 @@ class Neural_Network(object):
             out = np.tanh(zl)
         if af == "relu":
             #out = np.maximum(zl, 1e-8)
-            out = np.maximum(zl, 0)
+            out = np.maximum(zl, np.zeros(zl.shape))
         if af == "leaky_relu":
             out = .5*( (1 - np.sign(zl))*1e-2*zl + (1 + np.sign(zl))*zl)
         if af == "softmax":
